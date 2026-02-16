@@ -4,9 +4,12 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import 'react-native-reanimated';
+import { Analytics } from '@vercel/analytics/react';
 
 import { useColorScheme } from '@/components/useColorScheme';
+import { ScanProvider } from '@/src/context/ScanContext';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -50,10 +53,16 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-      </Stack>
+      <ScanProvider>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="capture" options={{ headerShown: false }} />
+          <Stack.Screen name="result" options={{ title: 'Verdict' }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Important note for users' }} />
+          <Stack.Screen name="whats-sugar" options={{ presentation: 'modal', headerShown: false }} />
+        </Stack>
+      </ScanProvider>
+      {Platform.OS === 'web' && <Analytics />}
     </ThemeProvider>
   );
 }

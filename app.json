@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "label-truth",
-    "slug": "label-truth",
+    "name": "SweetLies",
+    "slug": "sweetlies",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -14,7 +14,13 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "SweetLies needs camera access to capture nutrition labels and product packaging.",
+        "NSPhotoLibraryUsageDescription": "SweetLies needs photo library access to select images of nutrition labels.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bundleIdentifier": "com.vikaspgoel.labeltruth"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +28,12 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -34,6 +45,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "13e71725-de08-42ea-85ed-0121aff7c8c1"
+      }
     }
   }
 }
