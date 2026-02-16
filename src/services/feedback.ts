@@ -4,11 +4,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const LIKED_KEY = '@sweetlies_has_liked';
 const FEEDBACK_COOLDOWN_KEY = '@sweetlies_feedback_last';
 
-const getDbUrl = () => {
-  const url =
-    (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_FIREBASE_DATABASE_URL) ||
-    'https://sweetlies-default-rtdb.firebaseio.com';
-  return url.replace(/\/$/, '');
+const getApiBase = () => {
+  if (Platform.OS !== 'web') return '';
+  if (typeof window === 'undefined') return '';
+  return window.location.origin;
 };
 
 function getStorage(): { getItem: (k: string) => Promise<string | null>; setItem: (k: string, v: string) => Promise<void> } {
@@ -35,16 +34,15 @@ const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
 
 export async function getLikeCount(): Promise<number> {
   if (Platform.OS !== 'web') return 0;
+  const base = getApiBase();
+  if (!base) return 0;
   try {
-    const res = await withTimeout(
-      fetch(`${getDbUrl()}/likes/count.json`),
-      8000
-    );
+    const res = await withTimeout(fetch(`${base}/api/likes`), 8000);
     if (!res.ok) return 0;
-    const val = await res.json();
-    return typeof val === 'number' ? val : 0;
+    const data = await res.json();
+    return typeof data.count === 'number' ? data.count : 0;
   } catch (e) {
-    console.error('Firebase getLikeCount error:', e);
+    console.error('getLikeCount error:', e);
     return 0;
   }
 }
@@ -53,35 +51,33 @@ export async function incrementLike(): Promise<{ ok: boolean; error?: string }> 
   if (Platform.OS !== 'web') return { ok: false };
   try {
     const hasLiked = await storage.getItem(LIKED_KEY);
-    if (hasLiked === 'true') return { ok: false };
+    if (hasLiked === 'true') return { ok: false, error: 'Already liked' };
 
-    const currentRes = await withTimeout(
-      fetch(`${getDbUrl()}/likes/count.json`),
+    const base = getApiBase();
+    if (!base) return { ok: false, error: 'No API base' };
+
+    const res = await withTimeout(
+      fetch(`${base}/api/likes`, { method: 'POST' }),
       8000
     );
-    const current = currentRes.ok ? await currentRes.json() : null;
-    const nextVal = (typeof current === 'number' ? current : 0) + 1;
+    const data = await res.json().catch(() => ({}));
 
-    const putRes = await withTimeout(
-      fetch(`${getDbUrl()}/likes/count.json`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextVal),
-      }),
-      8000
-    );
-
-    if (!putRes.ok) {
-      const errText = await putRes.text();
-      return { ok: false, error: `HTTP ${putRes.status}: ${errText}` };
+    if (!res.ok) {
+      return { ok: false, error: data.error || `HTTP ${res.status}` };
     }
 
     await storage.setItem(LIKED_KEY, 'true');
     return { ok: true };
   } catch (e) {
-    console.error('Firebase incrementLike error:', e);
+    console.error('incrementLike error:', e);
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
+  }
+}
+
+export async function clearLikedState(): Promise<void> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    localStorage.removeItem(LIKED_KEY);
   }
 }
 
@@ -113,24 +109,27 @@ export async function submitFeedback(text: string): Promise<{ ok: boolean; error
   if (Platform.OS !== 'web') return { ok: false };
 
   try {
+    const base = getApiBase();
+    if (!base) return { ok: false, error: 'No API base' };
+
     const res = await withTimeout(
-      fetch(`${getDbUrl()}/feedback.json`, {
+      fetch(`${base}/api/feedback`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: trimmed, timestamp: Date.now() }),
+        body: JSON.stringify({ text: trimmed }),
       }),
       8000
     );
+    const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const errText = await res.text();
-      return { ok: false, error: `HTTP ${res.status}: ${errText}` };
+      return { ok: false, error: data.error || `HTTP ${res.status}` };
     }
 
     await storage.setItem(FEEDBACK_COOLDOWN_KEY, String(Date.now()));
     return { ok: true };
   } catch (e) {
-    console.error('Firebase submitFeedback error:', e);
+    console.error('submitFeedback error:', e);
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, error: msg };
   }

@@ -24,6 +24,7 @@ import {
   getLikeCount,
   incrementLike,
   hasUserLiked,
+  clearLikedState,
   submitFeedback,
   canSubmitFeedback,
 } from '@/src/services/feedback';
@@ -125,8 +126,12 @@ export default function ResultScreen() {
       setHasLiked(true);
       setLikeCount((c) => c + 1);
     } else if (result.error) {
-      const short = result.error.length > 80 ? result.error.slice(0, 80) + '...' : result.error;
-      Alert.alert('Could not save like', `Error: ${short}\n\nCheck Firebase Console: Realtime Database > Rules (must allow write on likes/count).`);
+      if (result.error === 'Already liked') {
+        setHasLiked(true);
+      } else {
+        const short = result.error.length > 80 ? result.error.slice(0, 80) + '...' : result.error;
+        Alert.alert('Could not save like', `Error: ${short}\n\nCheck Firebase Console: Realtime Database > Rules (must allow write on likes/count).`);
+      }
     }
   };
 
@@ -457,6 +462,7 @@ export default function ResultScreen() {
               <Pressable
                 style={[styles.likeBtn, hasLiked && styles.likeBtnDisabled]}
                 onPress={handleLike}
+                onLongPress={async () => { await clearLikedState(); setHasLiked(false); }}
                 disabled={hasLiked || likeLoading}
               >
                 {likeLoading ? (
