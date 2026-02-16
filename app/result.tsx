@@ -6,6 +6,10 @@ import {
   Pressable,
   ScrollView,
   Linking,
+  Modal,
+  TextInput,
+  ActivityIndicator,
+  Platform,
 } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -15,6 +19,13 @@ import { getSugarVerdict, getSugaryIngredientsWithInfo, getSugarWarning } from '
 import { extractNutritionAndIngredientsOnly, parseStructuredSummary } from '@/src/utils/extractNutritionSections';
 import { getClaimEducation } from '@/src/knowledge/claimEducation';
 import { findArtificialSweetenerMatches } from '@/src/parser/ingredientsParser';
+import {
+  getLikeCount,
+  incrementLike,
+  hasUserLiked,
+  submitFeedback,
+  canSubmitFeedback,
+} from '@/src/services/feedback';
 
 /** Sanitize label summary for display: remove control chars and junk, normalize spaces. */
 function sanitizeLabelSummary(s: string): string {
@@ -80,12 +91,60 @@ export default function ResultScreen() {
   const [activeTab, setActiveTab] = useState<'overview' | 'nutrition'>('overview');
   const [showRawOcr, setShowRawOcr] = useState(false);
   const [showPolyolReadMore, setShowPolyolReadMore] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [hasLiked, setHasLiked] = useState(false);
+  const [likeLoading, setLikeLoading] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [feedbackBlocked, setFeedbackBlocked] = useState(false);
 
   const hasData = (labelText?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!hasData) router.replace('/(tabs)');
   }, [hasData]);
+
+  useEffect(() => {
+    if (!hasData || Platform.OS !== 'web') return;
+    (async () => {
+      const [count, liked] = await Promise.all([getLikeCount(), hasUserLiked()]);
+      setLikeCount(count);
+      setHasLiked(liked);
+    })();
+  }, [hasData]);
+
+  const handleLike = async () => {
+    if (Platform.OS !== 'web' || hasLiked || likeLoading) return;
+    setLikeLoading(true);
+    const ok = await incrementLike();
+    setLikeLoading(false);
+    if (ok) {
+      setHasLiked(true);
+      setLikeCount((c) => c + 1);
+    }
+  };
+
+  const handleOpenFeedback = async () => {
+    if (Platform.OS !== 'web') return;
+    const ok = await canSubmitFeedback();
+    setFeedbackBlocked(!ok);
+    setShowFeedbackModal(true);
+    setFeedbackSubmitted(false);
+    setFeedbackText('');
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!feedbackText.trim() || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+    const ok = await submitFeedback(feedbackText);
+    setFeedbackSubmitting(false);
+    if (ok) {
+      setFeedbackSubmitted(true);
+      setFeedbackText('');
+    }
+  };
 
   if (!hasData) return null;
 
@@ -381,11 +440,81 @@ export default function ResultScreen() {
         <Pressable style={styles.newScanBtn} onPress={handleNewScan}>
           <Text style={styles.newScanText}>Check another product</Text>
         </Pressable>
-        <Pressable style={styles.shareBtn} onPress={handleShare}>
-          <FontAwesome5 name="whatsapp" size={18} color="#25D366" solid />
-          <Text style={styles.shareBtnText}>Share It</Text>
-        </Pressable>
+        <View style={styles.feedbackRow}>
+          <Pressable style={styles.shareBtn} onPress={handleShare}>
+            <FontAwesome5 name="whatsapp" size={18} color="#25D366" solid />
+            <Text style={styles.shareBtnText}>Share</Text>
+          </Pressable>
+          {Platform.OS === 'web' && (
+            <>
+              <Pressable
+                style={[styles.likeBtn, hasLiked && styles.likeBtnDisabled]}
+                onPress={handleLike}
+                disabled={hasLiked || likeLoading}
+              >
+                {likeLoading ? (
+                  <ActivityIndicator size="small" color="#64748b" />
+                ) : (
+                  <FontAwesome5 name="heart" size={16} color={hasLiked ? '#dc2626' : '#64748b'} solid={hasLiked} />
+                )}
+                <Text style={styles.likeBtnText}>{hasLiked ? 'Liked' : 'Like'}</Text>
+                <Text style={styles.likeCountText}>({likeCount})</Text>
+              </Pressable>
+              <Pressable style={styles.feedbackBtn} onPress={handleOpenFeedback}>
+                <FontAwesome5 name="comment-alt" size={16} color="#64748b" />
+                <Text style={styles.shareBtnText}>Feedback</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </View>
+
+      <Modal
+        visible={showFeedbackModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFeedbackModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowFeedbackModal(false)}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Send feedback</Text>
+            {feedbackBlocked ? (
+              <Text style={styles.modalHint}>You can send one feedback per 24 hours. Try again later.</Text>
+            ) : feedbackSubmitted ? (
+              <Text style={styles.modalSuccess}>Thank you! Your feedback has been received.</Text>
+            ) : (
+              <>
+                <TextInput
+                  style={styles.feedbackInput}
+                  placeholder="Your feedback (anonymous, max 500 chars)"
+                  placeholderTextColor="#94a3b8"
+                  value={feedbackText}
+                  onChangeText={setFeedbackText}
+                  multiline
+                  maxLength={500}
+                  editable={!feedbackSubmitting}
+                />
+                <View style={styles.modalActions}>
+                  <Pressable style={styles.modalCancelBtn} onPress={() => setShowFeedbackModal(false)}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.modalSubmitBtn, (!feedbackText.trim() || feedbackSubmitting) && styles.modalSubmitDisabled]}
+                    onPress={handleSubmitFeedback}
+                    disabled={!feedbackText.trim() || feedbackSubmitting}
+                  >
+                    {feedbackSubmitting ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.modalSubmitText}>Send</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -752,6 +881,12 @@ const styles = StyleSheet.create({
   bottomActions: { marginTop: 8, gap: 12 },
   newScanBtn: { backgroundColor: '#3d1f1a', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
   newScanText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  feedbackRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'center',
+  },
   shareBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -765,4 +900,70 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   shareBtnText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
+  likeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  likeBtnDisabled: { opacity: 0.8 },
+  likeBtnText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
+  likeCountText: { fontSize: 13, color: '#94a3b8' },
+  feedbackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 16 },
+  modalHint: { fontSize: 14, color: '#64748b', lineHeight: 22 },
+  modalSuccess: { fontSize: 15, color: '#16a34a', fontWeight: '500' },
+  feedbackInput: {
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 15,
+    color: '#0f172a',
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 16,
+  },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
+  modalCancelText: { fontSize: 15, color: '#64748b', fontWeight: '500' },
+  modalSubmitBtn: {
+    backgroundColor: '#3d1f1a',
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+  },
+  modalSubmitDisabled: { opacity: 0.6 },
+  modalSubmitText: { fontSize: 15, color: '#fff', fontWeight: '600' },
 });
