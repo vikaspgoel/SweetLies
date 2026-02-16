@@ -1,10 +1,15 @@
 import { Platform } from 'react-native';
-import { ref, get, push, set, increment } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '@/src/config/firebase';
 
 const LIKED_KEY = '@sweetlies_has_liked';
 const FEEDBACK_COOLDOWN_KEY = '@sweetlies_feedback_last';
+
+const getDbUrl = () => {
+  const url =
+    (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_FIREBASE_DATABASE_URL) ||
+    'https://sweetlies-default-rtdb.firebaseio.com';
+  return url.replace(/\/$/, '');
+};
 
 function getStorage(): { getItem: (k: string) => Promise<string | null>; setItem: (k: string, v: string) => Promise<void> } {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -21,10 +26,22 @@ function getStorage(): { getItem: (k: string) => Promise<string | null>; setItem
 
 const storage = getStorage();
 
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms)),
+  ]);
+};
+
 export async function getLikeCount(): Promise<number> {
+  if (Platform.OS !== 'web') return 0;
   try {
-    const snapshot = await get(ref(db, 'likes/count'));
-    const val = snapshot.val();
+    const res = await withTimeout(
+      fetch(`${getDbUrl()}/likes/count.json`),
+      8000
+    );
+    if (!res.ok) return 0;
+    const val = await res.json();
     return typeof val === 'number' ? val : 0;
   } catch (e) {
     console.error('Firebase getLikeCount error:', e);
@@ -33,11 +50,32 @@ export async function getLikeCount(): Promise<number> {
 }
 
 export async function incrementLike(): Promise<{ ok: boolean; error?: string }> {
+  if (Platform.OS !== 'web') return { ok: false };
   try {
     const hasLiked = await storage.getItem(LIKED_KEY);
     if (hasLiked === 'true') return { ok: false };
 
-    await set(ref(db, 'likes/count'), increment(1));
+    const currentRes = await withTimeout(
+      fetch(`${getDbUrl()}/likes/count.json`),
+      8000
+    );
+    const current = currentRes.ok ? await currentRes.json() : null;
+    const nextVal = (typeof current === 'number' ? current : 0) + 1;
+
+    const putRes = await withTimeout(
+      fetch(`${getDbUrl()}/likes/count.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(nextVal),
+      }),
+      8000
+    );
+
+    if (!putRes.ok) {
+      const errText = await putRes.text();
+      return { ok: false, error: `HTTP ${putRes.status}: ${errText}` };
+    }
+
     await storage.setItem(LIKED_KEY, 'true');
     return { ok: true };
   } catch (e) {
@@ -56,7 +94,7 @@ export async function hasUserLiked(): Promise<boolean> {
   }
 }
 
-const FEEDBACK_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 hours
+const FEEDBACK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export async function canSubmitFeedback(): Promise<boolean> {
   try {
@@ -72,12 +110,23 @@ export async function canSubmitFeedback(): Promise<boolean> {
 export async function submitFeedback(text: string): Promise<{ ok: boolean; error?: string }> {
   const trimmed = text.trim().slice(0, 500);
   if (!trimmed) return { ok: false };
+  if (Platform.OS !== 'web') return { ok: false };
 
   try {
-    await push(ref(db, 'feedback'), {
-      text: trimmed,
-      timestamp: Date.now(),
-    });
+    const res = await withTimeout(
+      fetch(`${getDbUrl()}/feedback.json`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed, timestamp: Date.now() }),
+      }),
+      8000
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, error: `HTTP ${res.status}: ${errText}` };
+    }
+
     await storage.setItem(FEEDBACK_COOLDOWN_KEY, String(Date.now()));
     return { ok: true };
   } catch (e) {
