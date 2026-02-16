@@ -1,8 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
-// Database URL: Set EXPO_PUBLIC_FIREBASE_DATABASE_URL in Vercel if your DB is in a different region.
-// Get it from Firebase Console > Realtime Database (top of page).
+// Database URL: Set EXPO_PUBLIC_FIREBASE_DATABASE_URL in Vercel to override.
+// Get from Firebase Console > Realtime Database. Common: firebaseio.com (US), asia-southeast1.firebasedatabase.app (Asia)
 const databaseURL =
   (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_FIREBASE_DATABASE_URL) ||
   'https://sweetlies-default-rtdb.firebaseio.com';
