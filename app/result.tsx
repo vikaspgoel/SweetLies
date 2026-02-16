@@ -125,7 +125,8 @@ export default function ResultScreen() {
       setHasLiked(true);
       setLikeCount((c) => c + 1);
     } else if (result.error) {
-      Alert.alert('Could not save like', 'Please check your connection. If the issue persists, the database URL may need to be updated.');
+      const short = result.error.length > 80 ? result.error.slice(0, 80) + '...' : result.error;
+      Alert.alert('Could not save like', `Error: ${short}\n\nCheck Firebase Console: Realtime Database > Rules (must allow write on likes/count).`);
     }
   };
 
@@ -147,7 +148,8 @@ export default function ResultScreen() {
       setFeedbackSubmitted(true);
       setFeedbackText('');
     } else if (result.error) {
-      Alert.alert('Could not send feedback', 'Please check your connection. If the issue persists, the database URL may need to be updated.');
+      const short = result.error.length > 80 ? result.error.slice(0, 80) + '...' : result.error;
+      Alert.alert('Could not send feedback', `Error: ${short}\n\nCheck Firebase Console: Realtime Database > Rules (must allow write on feedback).`);
     }
   };
 

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { ref, get, push, runTransaction } from 'firebase/database';
+import { ref, get, push, set, increment } from 'firebase/database';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '@/src/config/firebase';
 
@@ -37,9 +37,7 @@ export async function incrementLike(): Promise<{ ok: boolean; error?: string }> 
     const hasLiked = await storage.getItem(LIKED_KEY);
     if (hasLiked === 'true') return { ok: false };
 
-    await runTransaction(ref(db, 'likes/count'), (current) => {
-      return (current ?? 0) + 1;
-    });
+    await set(ref(db, 'likes/count'), increment(1));
     await storage.setItem(LIKED_KEY, 'true');
     return { ok: true };
   } catch (e) {
