@@ -10,6 +10,7 @@ import {
   TextInput,
   ActivityIndicator,
   Platform,
+  Alert,
 } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -118,11 +119,13 @@ export default function ResultScreen() {
   const handleLike = async () => {
     if (Platform.OS !== 'web' || hasLiked || likeLoading) return;
     setLikeLoading(true);
-    const ok = await incrementLike();
+    const result = await incrementLike();
     setLikeLoading(false);
-    if (ok) {
+    if (result.ok) {
       setHasLiked(true);
       setLikeCount((c) => c + 1);
+    } else if (result.error) {
+      Alert.alert('Could not save like', 'Please check your connection. If the issue persists, the database URL may need to be updated.');
     }
   };
 
@@ -138,11 +141,13 @@ export default function ResultScreen() {
   const handleSubmitFeedback = async () => {
     if (!feedbackText.trim() || feedbackSubmitting) return;
     setFeedbackSubmitting(true);
-    const ok = await submitFeedback(feedbackText);
+    const result = await submitFeedback(feedbackText);
     setFeedbackSubmitting(false);
-    if (ok) {
+    if (result.ok) {
       setFeedbackSubmitted(true);
       setFeedbackText('');
+    } else if (result.error) {
+      Alert.alert('Could not send feedback', 'Please check your connection. If the issue persists, the database URL may need to be updated.');
     }
   };
 

@@ -1,11 +1,16 @@
 import { initializeApp } from 'firebase/app';
 import { getDatabase } from 'firebase/database';
 
+// Database URL: Set EXPO_PUBLIC_FIREBASE_DATABASE_URL in Vercel if your DB is in a different region.
+// Get it from Firebase Console > Realtime Database (top of page).
+const databaseURL =
+  (typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_FIREBASE_DATABASE_URL) ||
+  'https://sweetlies-default-rtdb.firebaseio.com';
+
 const firebaseConfig = {
   apiKey: 'AIzaSyB8z5vvBBxofIAvuBmpDBSiAzipBYkxXDA',
   authDomain: 'sweetlies.firebaseapp.com',
-  // If your DB is in a different region, update from Firebase Console > Realtime Database
-  databaseURL: 'https://sweetlies-default-rtdb.firebaseio.com',
+  databaseURL,
   projectId: 'sweetlies',
   storageBucket: 'sweetlies.firebasestorage.app',
   messagingSenderId: '124681760579',
