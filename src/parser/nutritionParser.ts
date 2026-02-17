@@ -178,5 +178,24 @@ export function parseNutritionTable(ocrText: string): ParsedNutrients {
     result.perUnit = 'pack';
   }
 
+  const limits: Array<[keyof ParsedNutrients, number]> = [
+    ['sugarPer100g', 200],
+    ['polyolsPer100g', 200],
+    ['fatPer100g', 200],
+    ['proteinPer100g', 200],
+    ['carbsPer100g', 200],
+    ['caloriesPer100g', 2000],
+    ['sodiumPer100g', 40000],
+    ['cholesterolPer100g', 5000],
+    ['phosphorusPer100g', 100000],
+    ['vitaminCPer100g', 100000],
+  ];
+  for (const [k, max] of limits) {
+    const v = (result as any)[k];
+    if (typeof v === 'number' && (v < 0 || v > max)) {
+      delete (result as any)[k];
+    }
+  }
+
   return result;
 }

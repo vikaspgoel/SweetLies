@@ -14,6 +14,7 @@ import { PRODUCT_CLAIM_OPTIONS } from '@/src/knowledge/worryAndClaims';
 import { MultiFileUpload } from '@/src/components/MultiFileUpload';
 import { extractText } from '@/src/ocr/extractText';
 import { getClaimLabel, getEvaluatorKey } from '@/src/knowledge/worryAndClaims';
+import { extractNutritionAndIngredientsOnly, getCombinedExtractedText } from '@/src/utils/extractNutritionSections';
 
 export default function HomeScreen() {
   const {
@@ -77,7 +78,13 @@ export default function HomeScreen() {
         return;
       }
 
-      setLabelText(allBlocks);
+      const combined = allBlocks.join('\n');
+      const scoped = extractNutritionAndIngredientsOnly(combined);
+      const scopedCombined = getCombinedExtractedText(scoped);
+      const scopedBlocks = scopedCombined && scopedCombined.trim().length > 0
+        ? scopedCombined.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+        : allBlocks;
+      setLabelText(scopedBlocks);
       setSelectedClaims(claimEvaluatorKey ? [claimLabel] : []);
 
       // Defer navigation so React commits context updates before ResultScreen mounts

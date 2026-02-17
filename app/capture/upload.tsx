@@ -5,6 +5,7 @@ import { useScan } from '@/src/context/ScanContext';
 import { extractText } from '@/src/ocr/extractText';
 import { MultiFileUpload } from '@/src/components/MultiFileUpload';
 import { getClaimLabel, getEvaluatorKey } from '@/src/knowledge/worryAndClaims';
+import { extractNutritionAndIngredientsOnly, getCombinedExtractedText } from '@/src/utils/extractNutritionSections';
 
 export default function UploadScreen() {
   const {
@@ -60,7 +61,13 @@ export default function UploadScreen() {
         return;
       }
 
-      setLabelText(allBlocks);
+      const combined = allBlocks.join('\n');
+      const scoped = extractNutritionAndIngredientsOnly(combined);
+      const scopedCombined = getCombinedExtractedText(scoped);
+      const scopedBlocks = scopedCombined && scopedCombined.trim().length > 0
+        ? scopedCombined.split(/\n+/).map((s) => s.trim()).filter(Boolean)
+        : allBlocks;
+      setLabelText(scopedBlocks);
       setSelectedClaims(claimEvaluatorKey ? [claimLabel] : []);
 
       setTimeout(() => {
