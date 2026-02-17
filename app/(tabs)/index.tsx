@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -28,6 +28,8 @@ export default function HomeScreen() {
   } = useScan();
   const [processing, setProcessing] = useState(false);
   const [showWhyExpand, setShowWhyExpand] = useState(false);
+  const [showSlowMessage, setShowSlowMessage] = useState(false);
+  const slowMsgRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const claimLabel = getClaimLabel(selectedClaim);
   const claimEvaluatorKey = getEvaluatorKey(selectedClaim);
@@ -36,6 +38,21 @@ export default function HomeScreen() {
     setSelectedClaim(id);
     setWorryType('sugar');
   };
+
+  useEffect(() => {
+    if (!processing) {
+      setShowSlowMessage(false);
+      if (slowMsgRef.current) {
+        clearTimeout(slowMsgRef.current);
+        slowMsgRef.current = null;
+      }
+    } else {
+      slowMsgRef.current = setTimeout(() => setShowSlowMessage(true), 2000);
+    }
+    return () => {
+      if (slowMsgRef.current) clearTimeout(slowMsgRef.current);
+    };
+  }, [processing]);
 
   const handleTellMeTheTruth = async () => {
     if (labelImageUris.length === 0) {
@@ -179,6 +196,11 @@ export default function HomeScreen() {
         {!canProceed && (
           <Text style={styles.truthHint}>
             Add at least one photo to continue.
+          </Text>
+        )}
+        {showSlowMessage && processing && (
+          <Text style={styles.slowMessage}>
+            We&apos;re working on it — it&apos;s worth the wait!
           </Text>
         )}
       </View>
@@ -339,6 +361,13 @@ const styles = StyleSheet.create({
     color: '#64748b',
     marginTop: 12,
     textAlign: 'center',
+  },
+  slowMessage: {
+    fontSize: 15,
+    color: '#475569',
+    marginTop: 16,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   footer: { height: 40 },
 });

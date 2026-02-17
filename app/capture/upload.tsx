@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, Pressable, Alert, ActivityIndicator } from 'react-native';
 import { router } from 'expo-router';
 import { useScan } from '@/src/context/ScanContext';
@@ -16,6 +16,23 @@ export default function UploadScreen() {
     setSelectedClaims,
   } = useScan();
   const [processing, setProcessing] = useState(false);
+  const [showSlowMessage, setShowSlowMessage] = useState(false);
+  const slowMsgRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!processing) {
+      setShowSlowMessage(false);
+      if (slowMsgRef.current) {
+        clearTimeout(slowMsgRef.current);
+        slowMsgRef.current = null;
+      }
+    } else {
+      slowMsgRef.current = setTimeout(() => setShowSlowMessage(true), 2000);
+    }
+    return () => {
+      if (slowMsgRef.current) clearTimeout(slowMsgRef.current);
+    };
+  }, [processing]);
 
   const claimLabel = getClaimLabel(selectedClaim);
   const claimEvaluatorKey = getEvaluatorKey(selectedClaim);
@@ -102,6 +119,11 @@ export default function UploadScreen() {
           <Text style={styles.truthBtnText}>Let's find sweet lies</Text>
         )}
       </Pressable>
+      {showSlowMessage && processing && (
+        <Text style={styles.slowMessage}>
+          We&apos;re working on it — it&apos;s worth the wait!
+        </Text>
+      )}
     </View>
   );
 }
@@ -159,6 +181,13 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 14,
     alignItems: 'center',
+  },
+  slowMessage: {
+    fontSize: 15,
+    color: '#475569',
+    marginTop: 16,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   truthBtnDisabled: {
     backgroundColor: '#94a3b8',
