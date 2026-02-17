@@ -15,7 +15,7 @@ export async function extractText(imageUri: string): Promise<string[]> {
 const MAX_PREPROCESS_DIM = 1600;
 const MIN_PREPROCESS_DIM = 800;
 const CONTRAST_STRENGTH = 1.15;
-const MIN_WORD_CONFIDENCE = 15;
+const MIN_WORD_CONFIDENCE = 18;
 const ROW_TOLERANCE_PX = 8;
 
 /**
@@ -138,6 +138,18 @@ function filterMinimal(blocks: string[]): string[] {
   });
 }
 
+function dedupeBlocks(blocks: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const b of blocks) {
+    const key = b.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(b);
+  }
+  return out;
+}
+
 async function recognizeWithPsm(
   worker: {
     setParameters: (p: object) => Promise<unknown>;
@@ -163,7 +175,7 @@ async function runOcrOnImage(uriToUse: string): Promise<string[]> {
     const blocks4 = await recognizeWithPsm(worker, uriToUse, '4');
     const blocks6 = await recognizeWithPsm(worker, uriToUse, '6');
     const blocks11 = await recognizeWithPsm(worker, uriToUse, '11');
-    return [...blocks4, ...blocks6, ...blocks11];
+    return dedupeBlocks([...blocks4, ...blocks6, ...blocks11]);
   } finally {
     await worker.terminate();
   }

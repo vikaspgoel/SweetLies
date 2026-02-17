@@ -23,8 +23,7 @@ export function FileUpload({ value, onChange, placeholder = 'Upload image' }: Fi
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [3, 4],
+      allowsEditing: false,
       quality: 1,
     });
 
