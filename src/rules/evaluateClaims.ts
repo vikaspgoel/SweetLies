@@ -72,63 +72,63 @@ function evalSugarFree(ctx: RuleContext): { verdict: Verdict; reason: string } |
   const sugar = ctx.nutrients.sugarPer100g ?? 0;
   if (sugar < CLAIM_THRESHOLDS.sugarFreeMax)
     return { verdict: 'GREEN', reason: `Sugar ${sugar}g/100g is below ${CLAIM_THRESHOLDS.sugarFreeMax}g threshold.` };
-  return { verdict: 'RED', reason: `Sugar free claim fails. Product has ${sugar}g sugar per 100g (max ${CLAIM_THRESHOLDS.sugarFreeMax}g).` };
+  return { verdict: 'RED', reason: `Product has ${sugar}g sugar per 100g (max ${CLAIM_THRESHOLDS.sugarFreeMax}g).` };
 }
 
 function evalNoAddedSugar(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const { sugarAliasesFound, nutrients } = ctx;
   const sugar = nutrients.sugarPer100g ?? 0;
   if (sugarAliasesFound.length > 0)
-    return { verdict: 'RED', reason: `No added sugar claim fails. Found: ${sugarAliasesFound.slice(0, 3).join(', ')}.` };
+    return { verdict: 'RED', reason: `Found in ingredients: ${sugarAliasesFound.slice(0, 3).join(', ')}.` };
   if (sugar > CLAIM_THRESHOLDS.noAddedSugarMax)
-    return { verdict: 'RED', reason: `No added sugar claim fails. Product has ${sugar}g sugar per 100g.` };
-  return { verdict: 'GREEN', reason: 'No added sugar claim appears consistent with ingredients.' };
+    return { verdict: 'RED', reason: `Product has ${sugar}g sugar per 100g.` };
+  return { verdict: 'GREEN', reason: 'No added sugar ingredients detected; sugar within range.' };
 }
 
 function evalLessSugar(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const sugar = ctx.nutrients.sugarPer100g ?? 0;
   if (sugar <= CLAIM_THRESHOLDS.lessSugarMax)
-    return { verdict: 'GREEN', reason: `Less sugar claim: ${sugar}g/100g is within reasonable range.` };
-  return { verdict: 'RED', reason: `Less sugar claim fails. Product has ${sugar}g sugar per 100g.` };
+    return { verdict: 'GREEN', reason: `Product has ${sugar}g sugar per 100g.` };
+  return { verdict: 'RED', reason: `Product has ${sugar}g sugar per 100g.` };
 }
 
 function evalHighProtein(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const protein = ctx.nutrients.proteinPer100g;
   if (protein === undefined) return { verdict: 'AMBER', reason: 'Could not extract protein. Cannot verify.' };
   if (protein >= CLAIM_THRESHOLDS.highProteinMin)
-    return { verdict: 'GREEN', reason: `High protein claim valid. ${protein}g per 100g ≥ ${CLAIM_THRESHOLDS.highProteinMin}g.` };
-  return { verdict: 'RED', reason: `High protein claim fails. Only ${protein}g per 100g (threshold ${CLAIM_THRESHOLDS.highProteinMin}g).` };
+    return { verdict: 'GREEN', reason: `Product has ${protein}g protein per 100g.` };
+  return { verdict: 'RED', reason: `Product has ${protein}g protein per 100g (threshold ${CLAIM_THRESHOLDS.highProteinMin}g).` };
 }
 
 function evalBaked(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const fat = ctx.nutrients.fatPer100g;
   if (fat === undefined) return null;
   if (fat > CLAIM_THRESHOLDS.bakedFatLimit)
-    return { verdict: 'AMBER', reason: `Baked claim: fat is ${fat}g/100g. May suggest healthier prep—enjoy occasionally.` };
-  return { verdict: 'GREEN', reason: 'Baked claim acceptable; fat within range.' };
+    return { verdict: 'AMBER', reason: `Fat content: ${fat}g per 100g.` };
+  return { verdict: 'GREEN', reason: 'Fat content within range.' };
 }
 
 function evalFatFree(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const fat = ctx.nutrients.fatPer100g ?? 0;
   if (fat <= CLAIM_THRESHOLDS.fatFreeMax)
-    return { verdict: 'GREEN', reason: 'Fat free claim valid.' };
-  return { verdict: 'RED', reason: `Fat/oil free claim fails. Product has ${fat}g fat per 100g.` };
+    return { verdict: 'GREEN', reason: 'Fat content within free range.' };
+  return { verdict: 'RED', reason: `Product has ${fat}g fat per 100g.` };
 }
 
 function evalLowFat(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const fat = ctx.nutrients.fatPer100g;
   if (fat === undefined) return null;
   if (fat <= CLAIM_THRESHOLDS.lowFatMax)
-    return { verdict: 'GREEN', reason: `Low fat claim valid. ${fat}g per 100g.` };
-  return { verdict: 'RED', reason: `Low fat claim fails. ${fat}g per 100g (max ${CLAIM_THRESHOLDS.lowFatMax}g).` };
+    return { verdict: 'GREEN', reason: `Product has ${fat}g fat per 100g.` };
+  return { verdict: 'RED', reason: `Product has ${fat}g fat per 100g (max ${CLAIM_THRESHOLDS.lowFatMax}g).` };
 }
 
 function evalLowCarb(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const carbs = ctx.nutrients.carbsPer100g;
   if (carbs === undefined) return { verdict: 'AMBER', reason: 'Could not extract carbs. Cannot verify.' };
   if (carbs <= CLAIM_THRESHOLDS.lowCarbMax)
-    return { verdict: 'GREEN', reason: `Low carb claim valid. ${carbs}g per 100g ≤ ${CLAIM_THRESHOLDS.lowCarbMax}g.` };
-  return { verdict: 'RED', reason: `Low carb claim fails. ${carbs}g per 100g (max ${CLAIM_THRESHOLDS.lowCarbMax}g).` };
+    return { verdict: 'GREEN', reason: `Product has ${carbs}g carbs per 100g.` };
+  return { verdict: 'RED', reason: `Product has ${carbs}g carbs per 100g (max ${CLAIM_THRESHOLDS.lowCarbMax}g).` };
 }
 
 function evalNoProcessedSugar(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
@@ -142,8 +142,8 @@ function evalNoRefinedSugar(ctx: RuleContext): { verdict: Verdict; reason: strin
     REFINED_SUGAR_ALIASES.some((r) => a.toLowerCase().includes(r))
   );
   if (found.length > 0)
-    return { verdict: 'RED', reason: `No refined sugar claim fails. Found: ${found.slice(0, 3).join(', ')}.` };
-  return { verdict: 'GREEN', reason: 'No refined sugar claim appears consistent with ingredients.' };
+    return { verdict: 'RED', reason: `Found in ingredients: ${found.slice(0, 3).join(', ')}.` };
+  return { verdict: 'GREEN', reason: 'No refined sugar ingredients detected.' };
 }
 
 const FRUIT_TERMS = ['fruit', 'apple', 'mango', 'banana', 'berry', 'berries', 'orange', 'grape', 'pineapple', 'strawberry', 'blueberry', 'raspberry', 'blackberry', 'cherry', 'peach', 'pear', 'apricot', 'plum', 'cranberry', 'pomegranate', 'passion fruit', 'papaya'];
@@ -170,23 +170,23 @@ function evalSweetenedHoneyJaggeryDates(ctx: RuleContext): { verdict: Verdict; r
 function evalCholesterolFree(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const chol = ctx.nutrients.cholesterolPer100g ?? 0;
   if (chol <= CLAIM_THRESHOLDS.cholesterolFreeMax)
-    return { verdict: 'GREEN', reason: 'Cholesterol free claim valid.' };
-  return { verdict: 'RED', reason: `Cholesterol free claim fails. Product has ${chol}mg per 100g.` };
+    return { verdict: 'GREEN', reason: 'Cholesterol content within free range.' };
+  return { verdict: 'RED', reason: `Product has ${chol}mg cholesterol per 100g.` };
 }
 
 function evalLowCalorie(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const cal = ctx.nutrients.caloriesPer100g;
   if (cal === undefined) return { verdict: 'AMBER', reason: 'Could not extract calories. Cannot verify.' };
   if (cal <= CLAIM_THRESHOLDS.lowCalorieMax)
-    return { verdict: 'GREEN', reason: `Low calorie claim valid. ${cal} kcal per 100g.` };
-  return { verdict: 'RED', reason: `Low calorie claim fails. ${cal} kcal per 100g (max ${CLAIM_THRESHOLDS.lowCalorieMax}).` };
+    return { verdict: 'GREEN', reason: `Product has ${cal} kcal per 100g.` };
+  return { verdict: 'RED', reason: `Product has ${cal} kcal per 100g (max ${CLAIM_THRESHOLDS.lowCalorieMax}).` };
 }
 
 function evalZeroCalorie(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
   const cal = ctx.nutrients.caloriesPer100g ?? 999;
   if (cal <= CLAIM_THRESHOLDS.zeroCalorieMax)
-    return { verdict: 'GREEN', reason: 'Zero calorie claim valid.' };
-  return { verdict: 'RED', reason: `Zero calorie claim fails. Product has ${cal} kcal per 100g.` };
+    return { verdict: 'GREEN', reason: 'Calories within zero range.' };
+  return { verdict: 'RED', reason: `Product has ${cal} kcal per 100g.` };
 }
 
 function evalProteinValue(ctx: RuleContext): { verdict: Verdict; reason: string } | null {
@@ -197,6 +197,7 @@ function evalProteinValue(ctx: RuleContext): { verdict: Verdict; reason: string 
 
 const EVALUATORS: Record<string, (ctx: RuleContext) => { verdict: Verdict; reason: string } | null> = {
   'Sugar free': evalSugarFree,
+  'Sugar Free/ Zero Sugar': evalSugarFree,
   'No added sugar': evalNoAddedSugar,
   'Less sugar': evalLessSugar,
   'High protein': evalHighProtein,
@@ -219,16 +220,22 @@ const EVALUATORS: Record<string, (ctx: RuleContext) => { verdict: Verdict; reaso
   'Sweetened with honey/jaggery/dates': evalSweetenedHoneyJaggeryDates,
 };
 
+/**
+ * Evaluates claims using only the scoped nutrition and ingredients blocks.
+ * Marketing text and disclaimers must be excluded before calling (via extractNutritionAndIngredientsOnly).
+ */
 export function evaluateClaims(
-  labelText: string[],
+  nutritionBlock: string,
+  ingredientsBlock: string,
   brandingText: string[],
   manualClaims?: string[]
 ): EvaluationResult {
-  const labelCombined = labelText.join('\n').toLowerCase();
+  const nutritionText = nutritionBlock.trim().toLowerCase();
+  const ingredientsText = ingredientsBlock.trim();
   const brandingCombined = brandingText.join(' ');
 
-  const nutrients = parseNutritionTable(labelCombined);
-  const { sugarAliasesFound, sugarMatches, fatIdentifiersFound, rawIngredients } = parseIngredients(labelCombined);
+  const nutrients = parseNutritionTable(nutritionText);
+  const { sugarAliasesFound, sugarMatches, fatIdentifiersFound, rawIngredients } = parseIngredients(ingredientsText);
   const detectedFromImage = detectClaims(brandingCombined);
   const allClaims = [...new Set([...(manualClaims ?? []), ...detectedFromImage])];
 
@@ -245,7 +252,7 @@ export function evaluateClaims(
     sugarAliasesFound,
     fatIdentifiersFound,
     brandingText: brandingCombined,
-    ingredientsText: labelCombined,
+    ingredientsText: ingredientsText,
   };
 
   const claimResults: PerClaimResult[] = [];

@@ -8,7 +8,7 @@ export type WorryType = 'sugar' | 'fat' | 'protein' | 'calories' | 'diet';
 /** Sugar-only: claim options shown on home screen */
 export const PRODUCT_CLAIM_OPTIONS: { id: string; label: string; evaluatorKey: string | null }[] = [
   { id: 'no_added_sugar', label: 'No Added Sugar', evaluatorKey: 'No added sugar' },
-  { id: 'sugar_free', label: 'Sugar-Free', evaluatorKey: 'Sugar free' },
+  { id: 'sugar_free', label: 'Sugar Free/ Zero Sugar', evaluatorKey: 'Sugar Free/ Zero Sugar' },
   { id: 'no_refined_sugar', label: 'No Refined Sugar', evaluatorKey: 'No refined sugar' },
   { id: 'made_with_real_fruit', label: 'Made With Real Fruit', evaluatorKey: 'Made with real fruit' },
   { id: 'sweetened_honey_jaggery_dates', label: 'Sweetened With Honey/Jaggery/Dates', evaluatorKey: 'Sweetened with honey/jaggery/dates' },

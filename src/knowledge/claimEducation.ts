@@ -24,6 +24,13 @@ export const CLAIM_EDUCATION: Record<string, ClaimEducation> = {
       'The product may still contain maltodextrin, refined flour, starches, or artificial sweeteners—these can spike glucose anyway.',
     takeaway: 'Sugar-free ≠ glucose-free.',
   },
+  'Sugar Free/ Zero Sugar': {
+    whatMadeThemSay:
+      'Contains less than ~0.5g sugar per serving (legal definition).',
+    whereTheLieIs:
+      'The product may still contain maltodextrin, refined flour, starches, or artificial sweeteners—these can spike glucose anyway.',
+    takeaway: 'Sugar-free ≠ glucose-free.',
+  },
   'No refined sugar': {
     whatMadeThemSay:
       'No white processed sugar (sucrose) used.',

@@ -11,15 +11,18 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Dimensions,
 } from 'react-native';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useScan } from '@/src/context/ScanContext';
 import { evaluateClaims } from '@/src/rules/evaluateClaims';
 import { getSugarVerdict, getSugaryIngredientsWithInfo, getSugarWarning } from '@/src/rules/sugarVerdict';
-import { extractNutritionAndIngredientsOnly, parseStructuredSummary } from '@/src/utils/extractNutritionSections';
+import { extractNutritionAndIngredientsOnly, getCombinedExtractedText, parseStructuredSummary } from '@/src/utils/extractNutritionSections';
 import { getClaimEducation } from '@/src/knowledge/claimEducation';
-import { findArtificialSweetenerMatches } from '@/src/parser/ingredientsParser';
+import { getSweetenerFactCard } from '@/src/knowledge/sweetenerFactCards';
+import type { SweetenerInfo } from '@/src/knowledge/artificialSweetenerInfo';
+import { findSweetenerMatches } from '@/src/parser/ingredientsParser';
 import {
   getLikeCount,
   incrementLike,
@@ -63,6 +66,53 @@ function getCleanVerbatim(verbatim: string, alias: string): string {
   return stripVerbatimJunk(v);
 }
 
+/** Split fact card content into segments; spike warning segments are marked for red styling. */
+function getFactCardSegments(content: string): { text: string; isSpikeWarning: boolean }[] {
+  const segments: { text: string; isSpikeWarning: boolean }[] = [];
+  const re = /Spike Warning:[^\n]+(?:\n(?!\s*•)[^\n]+)*/gi;
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    if (m.index > lastIndex) {
+      segments.push({ text: content.slice(lastIndex, m.index), isSpikeWarning: false });
+    }
+    segments.push({ text: m[0], isSpikeWarning: true });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < content.length) {
+    segments.push({ text: content.slice(lastIndex), isSpikeWarning: false });
+  }
+  return segments.length > 0 ? segments : [{ text: content, isSpikeWarning: false }];
+}
+
+/** Inline spike-warning phrases to render in red within body text. */
+const INLINE_SPIKE_PHRASES = /(unexpected spikes|rise in blood glucose|effect on blood sugar|glycemic impact of real sugar|moderate rise in blood glucose)/gi;
+
+function getInlineSpikeParts(text: string): { text: string; isSpike: boolean }[] {
+  const parts: { text: string; isSpike: boolean }[] = [];
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = INLINE_SPIKE_PHRASES.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, m.index), isSpike: false });
+    }
+    parts.push({ text: m[0], isSpike: true });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex), isSpike: false });
+  }
+  return parts.length > 0 ? parts : [{ text, isSpike: false }];
+}
+
+/** Classify a line for fact card: intro (The X:), bullet header (• Safety / • Gut), or body. */
+function getFactCardLineStyle(line: string): 'intro' | 'bullet' | 'body' {
+  const t = line.trim();
+  if (/^The .+:/.test(t)) return 'intro';
+  if (/^•\s*(Safety|Gut):/.test(t)) return 'bullet';
+  return 'body';
+}
+
 export default function ResultScreen() {
   const params = useLocalSearchParams<{
     labelText?: string;
@@ -101,6 +151,8 @@ export default function ResultScreen() {
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [feedbackBlocked, setFeedbackBlocked] = useState(false);
+  const [showClaimEducation, setShowClaimEducation] = useState(false);
+  const [factCardSweetener, setFactCardSweetener] = useState<SweetenerInfo | null>(null);
 
   const hasData = (labelText?.length ?? 0) > 0;
 
@@ -161,11 +213,12 @@ export default function ResultScreen() {
   if (!hasData) return null;
 
   const labelCombined = labelText!.join('\n');
-  const extractedForEval = extractNutritionAndIngredientsOnly(labelCombined);
-
+  const extracted = extractNutritionAndIngredientsOnly(labelCombined);
+  const hasScopedBlocks = (extracted.nutritionBlock.trim().length > 0 || extracted.ingredientsBlock.trim().length > 0);
+  const nutritionBlock = hasScopedBlocks ? extracted.nutritionBlock : labelCombined;
+  const ingredientsBlock = hasScopedBlocks ? extracted.ingredientsBlock : labelCombined;
   const claimsToVerify = claimEvaluatorKey ? [claimEvaluatorKey] : [];
-  const textForEval = extractedForEval.trim().length > 0 ? [extractedForEval] : labelText!;
-  const evaluation = evaluateClaims(textForEval, [], claimsToVerify);
+  const evaluation = evaluateClaims(nutritionBlock, ingredientsBlock, [], claimsToVerify);
   const { claimResults, details } = evaluation;
 
   const sugarVerdict = getSugarVerdict({
@@ -181,9 +234,7 @@ export default function ResultScreen() {
     ? [`WARNING: Contains Sugar alcohol (Polyols) ${polyolsGrams}g per 100g — significant glycemic impact.`, ...sugarWarnings]
     : sugarWarnings;
   const rawIngredients = details.rawIngredients ?? [];
-  const artificialSweetenerMatches = sugarVerdict === 'NO_SUGAR'
-    ? findArtificialSweetenerMatches(rawIngredients)
-    : [];
+  const sweetenerMatches = findSweetenerMatches(rawIngredients);
 
   const handleNewScan = () => {
     resetScan();
@@ -209,7 +260,7 @@ export default function ResultScreen() {
         <View style={[styles.finalVerdict, sugarVerdict === 'NO_SUGAR' ? styles.finalVerdictNoSugar : styles.finalVerdictSugar]}>
           <Text style={styles.finalVerdictLabel}>Final Verdict</Text>
           <Text style={styles.finalVerdictText}>
-            {sugarVerdict === 'NO_SUGAR' ? 'No Sugar is found' : 'Sugar is there'}
+            {sugarVerdict === 'NO_SUGAR' ? 'No Sugar is found' : 'Sugar/Sugar type is there'}
           </Text>
         </View>
       )}
@@ -223,19 +274,33 @@ export default function ResultScreen() {
         </View>
       )}
 
-      {/* 2. Tabs: Tell me more | Label Details */}
+      {activeTab === 'overview' && !readVeryLittle && sugarVerdict === 'NO_SUGAR' && sweetenerMatches.length === 0 && (
+        <View style={styles.imageWarningBanner}>
+          <Text style={styles.imageWarningText}>
+            Try a clearer image of the ingredients list and nutrition label.
+          </Text>
+        </View>
+      )}
+
+      {/* Label Details tab - single tab; overview is default */}
       <View style={styles.tabBar}>
+        <View style={styles.tabSpacer} />
         <Pressable
-          style={[styles.tab, activeTab === 'overview' && styles.tabActive]}
-          onPress={() => setActiveTab('overview')}
+          style={[styles.tabLabelDetails, activeTab === 'nutrition' && styles.tabLabelDetailsActive]}
+          onPress={() => setActiveTab(activeTab === 'nutrition' ? 'overview' : 'nutrition')}
         >
-          <Text style={[styles.tabText, activeTab === 'overview' && styles.tabTextActive]}>Read below</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tab, activeTab === 'nutrition' && styles.tabActive]}
-          onPress={() => setActiveTab('nutrition')}
-        >
-          <Text style={[styles.tabText, activeTab === 'nutrition' && styles.tabTextActive]}>Label Details</Text>
+          <View style={styles.tabLabelDetailsInner}>
+            <Text style={[
+              styles.tabLabelDetailsText,
+              activeTab === 'nutrition' && styles.tabLabelDetailsTextActive,
+              activeTab !== 'nutrition' && Platform.OS === 'web' && styles.tabLabelDetailsUnderline,
+            ]}>
+              {activeTab === 'nutrition' ? 'Back' : 'Label Details'}
+            </Text>
+            {activeTab !== 'nutrition' && (
+              <FontAwesome5 name="chevron-right" size={12} color="#5c1a1a" />
+            )}
+          </View>
         </Pressable>
       </View>
 
@@ -244,7 +309,8 @@ export default function ResultScreen() {
           <Text style={styles.sectionTitle}>Summary of the label</Text>
           <Text style={styles.rawOcrHint}>Information captured under Ingredients and Nutrition Label.</Text>
           {((): React.ReactNode => {
-            const extracted = sanitizeLabelSummary(extractNutritionAndIngredientsOnly(labelCombined || '') || '');
+            const extractedBlocks = extractNutritionAndIngredientsOnly(labelCombined || '');
+            const extracted = sanitizeLabelSummary(getCombinedExtractedText(extractedBlocks) || '');
             let { ingredients, nutritionRows } = parseStructuredSummary(extracted);
             if (ingredients.length === 0 && nutritionRows.length === 0 && (labelCombined?.length ?? 0) > 80) {
               const rawParsed = parseStructuredSummary(sanitizeLabelSummary(labelCombined || ''));
@@ -321,7 +387,7 @@ export default function ResultScreen() {
         <View style={styles.tabContent}>
           {/* Sugary Ingredients - more descriptive */}
           {sugarVerdict === 'SUGAR_PRESENT' && (
-            <View style={styles.ingredientsSection}>
+            <View style={[styles.ingredientsSection, styles.segmentCard]}>
               {effectiveWarnings.length > 0 && (
                 <View style={styles.warningsBlock}>
                   {effectiveWarnings.map((w, i) => {
@@ -363,8 +429,8 @@ export default function ResultScreen() {
               )}
               {sugaryIngredients.length > 0 && (
                 <>
-                  <Text style={styles.sectionTitle}>What we found</Text>
-                  <Text style={styles.whatWeFoundIntro}>These exact ingredients on the label made us say "Sugar is there":</Text>
+                  <Text style={styles.segmentSectionTitle}>Sugar present?</Text>
+                  <Text style={styles.whatWeFoundIntro}>These exact ingredients on the label made us say "Sugar/Sugar type is there":</Text>
                   {sugaryIngredients.map(({ verbatim, alias, info }, i) => {
                     const displayText = getCleanVerbatim(verbatim, alias);
                     return (
@@ -388,30 +454,57 @@ export default function ResultScreen() {
             </View>
           )}
 
-          {/* If no sugar, what is making this sweet? */}
-          {sugarVerdict === 'NO_SUGAR' && !readVeryLittle && (
-            <View style={styles.artSweetenerSection}>
-              <Text style={styles.artSweetenerSectionTitle}>If no sugar, what is making this sweet?</Text>
-              {artificialSweetenerMatches.length > 0 ? (
+          {/* Artificial Sweeteners Present? - shown for every scan */}
+          {!readVeryLittle && (
+            <View style={[styles.artSweetenerSection, styles.segmentCard]}>
+              <Text style={styles.segmentSectionTitle}>Artificial Sweeteners Present?</Text>
+              {sweetenerMatches.length > 0 ? (
                 <>
-                  <Text style={styles.artSweetenerIntro}>
-                    These sweeteners were found in the ingredients — they provide sweetness without raising blood sugar like regular sugar.
-                  </Text>
-                  {artificialSweetenerMatches.map(({ verbatim, info }, i) => (
-                    <View key={i} style={styles.artSweetenerCard}>
-                      <Text style={styles.artSweetenerName}>{info.name}</Text>
-                      <View style={styles.artSweetenerMeta}>
-                        <Text style={styles.artSweetenerGi}>GI: {info.giValue}</Text>
-                        <Text style={styles.artSweetenerSpike}>Blood sugar spike: {info.bloodSugarSpike}</Text>
-                      </View>
-                      <Text style={styles.artSweetenerNote}>{info.note}</Text>
-                      <Text style={styles.artSweetenerVerbatim}>Found as: "{verbatim}"</Text>
+                  <View style={styles.sweetenerTable}>
+                    <View style={styles.sweetenerTableHeader}>
+                      <Text style={[styles.sweetenerTableHeaderCell, styles.sweetenerColName]}>Name</Text>
+                      <Text style={[styles.sweetenerTableHeaderCell, styles.sweetenerColCategory]}>Category</Text>
+                      <Text style={[styles.sweetenerTableHeaderCell, styles.sweetenerColGi]}>GI</Text>
+                      <Text style={[styles.sweetenerTableHeaderCell, styles.sweetenerColCal]}>Cal/g</Text>
                     </View>
-                  ))}
+                    {sweetenerMatches.map(({ verbatim, info }, i) => {
+                      const rowStyle =
+                        info.safetyCategory === 'Safe Sweetener'
+                          ? styles.sweetenerRowSafe
+                          : info.safetyCategory === 'Moderate GI'
+                            ? styles.sweetenerRowModerate
+                            : styles.sweetenerRowHigh;
+                      return (
+                        <View key={i} style={[styles.sweetenerTableRow, rowStyle]}>
+                          <View style={styles.sweetenerNameCell}>
+                            <Text style={[styles.sweetenerTableCell, styles.sweetenerColName]}>{info.name}</Text>
+                            <Pressable
+                              style={styles.sweetenerInfoIcon}
+                              onPress={() => setFactCardSweetener(info)}
+                              hitSlop={8}
+                            >
+                              <FontAwesome5 name="info-circle" size={16} color="#94a3b8" />
+                            </Pressable>
+                          </View>
+                          <Text style={[styles.sweetenerTableCell, styles.sweetenerColCategory]}>{info.safetyCategory}</Text>
+                          <Text style={[styles.sweetenerTableCell, styles.sweetenerColGi]}>{info.gi}</Text>
+                          <Text style={[styles.sweetenerTableCell, styles.sweetenerColCal]}>{info.calPerG}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                  {sweetenerMatches.some((m) => m.info.isMaltitol) && (
+                    <Text style={styles.maltitolAlert}>
+                      Note: Contains High GI sweetener that may impact blood glucose levels.
+                    </Text>
+                  )}
+                  <Text style={styles.sweetenerFoundAs}>
+                    Found as: {sweetenerMatches.map((m) => `"${m.verbatim}"`).join(', ')}
+                  </Text>
                 </>
               ) : (
                 <Text style={styles.artSweetenerNone}>
-                  No artificial sweeteners were identified in the ingredients. The product may use other additives, flavorings, or the sweetness could come from ingredients we didn&apos;t detect.
+                  No sweeteners (artificial or polyols) were identified in the ingredients.
                 </Text>
               )}
             </View>
@@ -419,28 +512,42 @@ export default function ResultScreen() {
 
           {/* Claim verification */}
           {showClaimVerdict && (
-            <View style={styles.claimSection}>
-              <Text style={styles.sectionTitle}>Claim verification</Text>
+            <View style={[styles.claimSection, styles.segmentCard]}>
+              <Text style={styles.segmentSectionTitle}>What about product claim?</Text>
               {claimResults.map((r, i) => {
                 const edu = getClaimEducation(r.claim);
                 return (
                 <View key={i} style={styles.claimRow}
                 >
                   <Text style={styles.claimNameHighlight}>{r.claim}</Text>
-                  {edu && (
-                    <View style={styles.claimEducation}>
-                      <Text style={styles.eduLabel}>What made them say this</Text>
-                      <Text style={styles.eduText}>{edu.whatMadeThemSay}</Text>
-                      <Text style={[styles.eduLabel, { marginTop: 12 }]}>Where the lie is</Text>
-                      <Text style={styles.eduText}>{edu.whereTheLieIs}</Text>
-                      <Text style={styles.eduTakeaway}>{edu.takeaway}</Text>
-                    </View>
-                  )}
                   {!readVeryLittle && r.reason ? (
                     <View style={styles.verdictBlock}>
+                      <Text style={styles.verdictBlockTitle}>What we found</Text>
                       <Text style={styles.reasonProminent}>{r.reason}</Text>
                     </View>
                   ) : null}
+                  {edu && (
+                    <>
+                      <Pressable
+                        style={styles.claimEducationToggle}
+                        onPress={() => setShowClaimEducation((v) => !v)}
+                      >
+                        <Text style={styles.claimEducationToggleText}>
+                          {showClaimEducation ? 'Hide' : 'Learn more about this claim'}
+                        </Text>
+                        <FontAwesome5 name={showClaimEducation ? 'chevron-up' : 'chevron-down'} size={14} color="#5c1a1a" />
+                      </Pressable>
+                      {showClaimEducation && (
+                        <View style={styles.claimEducation}>
+                          <Text style={styles.eduLabel}>What made them say this</Text>
+                          <Text style={styles.eduText}>{edu.whatMadeThemSay}</Text>
+                          <Text style={[styles.eduLabel, { marginTop: 12 }]}>Where the catch is</Text>
+                          <Text style={styles.eduText}>{edu.whereTheLieIs}</Text>
+                          <Text style={styles.eduTakeaway}>{edu.takeaway}</Text>
+                        </View>
+                      )}
+                    </>
+                  )}
                 </View>
               );})}
             </View>
@@ -528,6 +635,122 @@ export default function ResultScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Sweetener fact card modal */}
+      <Modal
+        visible={factCardSweetener !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFactCardSweetener(null)}
+      >
+        <Pressable style={styles.factCardOverlay} onPress={() => setFactCardSweetener(null)}>
+          <Pressable style={[styles.factCard, { maxHeight: Dimensions.get('window').height * 0.5 }]} onPress={(e) => e.stopPropagation()}>
+            {factCardSweetener && (() => {
+              const content = getSweetenerFactCard(factCardSweetener.name);
+              if (!content) {
+                return (
+                  <>
+                    <View style={styles.factCardHeader}>
+                      <Text style={styles.factCardTitle}>{factCardSweetener.name}</Text>
+                      <Pressable onPress={() => setFactCardSweetener(null)} hitSlop={12} style={styles.factCardCloseBtn}>
+                        <FontAwesome5 name="times" size={20} color="#64748b" />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.factCardBody}>No fact card available.</Text>
+                  </>
+                );
+              }
+              const segments = getFactCardSegments(content);
+              return (
+                <>
+                  <View style={styles.factCardHeader}>
+                    <Text style={styles.factCardTitle}>{factCardSweetener.name}</Text>
+                    <Pressable onPress={() => setFactCardSweetener(null)} hitSlop={12} style={styles.factCardCloseBtn}>
+                      <FontAwesome5 name="times" size={20} color="#64748b" />
+                    </Pressable>
+                  </View>
+                  <ScrollView style={styles.factCardScroll} showsVerticalScrollIndicator>
+                    <View style={styles.factCardBodyWrap}>
+                      {segments.flatMap((seg, idx) => {
+                        const baseStyle = seg.isSpikeWarning ? styles.factCardSpikeWarning : styles.factCardBody;
+                        return seg.text.split('\n').map((line, lineIdx) => {
+                          if (!line.trim()) {
+                            return <View key={`${idx}-${lineIdx}`} style={styles.factCardLineGap} />;
+                          }
+                          const lineStyle = getFactCardLineStyle(line);
+                          const displayText = lineStyle === 'bullet' ? line.replace(/^\s*•\s*/, '') : line;
+                          if (lineStyle === 'intro') {
+                            const introMatch = displayText.match(/^(The [^:]+:)\s*(.*)$/);
+                            const [headerPart, bodyPart] = introMatch
+                              ? [introMatch[1], introMatch[2]]
+                              : [displayText, ''];
+                            return (
+                              <Text key={`${idx}-${lineIdx}`}>
+                                <Text style={styles.factCardIntroHeader}>{headerPart} </Text>
+                                {bodyPart ? (
+                                  <Text style={baseStyle}>
+                                    {seg.isSpikeWarning ? bodyPart : (() => {
+                                      const parts = getInlineSpikeParts(bodyPart);
+                                      return parts.some(p => p.isSpike)
+                                        ? parts.map((p, i) =>
+                                            p.isSpike ? (
+                                              <Text key={i} style={styles.factCardSpikeWarning}>{p.text}</Text>
+                                            ) : (
+                                              p.text
+                                            )
+                                          )
+                                        : bodyPart;
+                                    })()}
+                                  </Text>
+                                ) : null}
+                              </Text>
+                            );
+                          }
+                          if (lineStyle === 'bullet') {
+                            const bulletMatch = displayText.match(/^(Safety|Gut):\s*(.*)$/);
+                            const [headerPart, bodyPart] = bulletMatch
+                              ? [`${bulletMatch[1]}:`, bulletMatch[2].trimStart()]
+                              : [displayText, ''];
+                            return (
+                              <Text key={`${idx}-${lineIdx}`}>
+                                <Text style={styles.factCardBulletHeader}>{headerPart} </Text>
+                                {bodyPart ? (
+                                  <Text style={baseStyle}>{bodyPart}</Text>
+                                ) : null}
+                              </Text>
+                            );
+                          }
+                          if (lineStyle === 'body' && !seg.isSpikeWarning) {
+                            const parts = getInlineSpikeParts(displayText);
+                            if (parts.some(p => p.isSpike)) {
+                              return (
+                                <Text key={`${idx}-${lineIdx}`} style={styles.factCardBody}>
+                                  {parts.map((p, i) =>
+                                    p.isSpike ? (
+                                      <Text key={i} style={styles.factCardSpikeWarning}>{p.text}</Text>
+                                    ) : (
+                                      p.text
+                                    )
+                                  )}
+                                </Text>
+                              );
+                            }
+                          }
+                          return (
+                            <Text key={`${idx}-${lineIdx}`} style={baseStyle}>
+                              {displayText}
+                            </Text>
+                          );
+                        });
+                      })}
+                    </View>
+                  </ScrollView>
+                </>
+              );
+            })()}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -580,34 +803,60 @@ const styles = StyleSheet.create({
     color: '#b45309',
     lineHeight: 21,
   },
+  imageWarningBanner: {
+    backgroundColor: '#fef3c7',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#d97706',
+  },
+  imageWarningText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#92400e',
+    textAlign: 'center',
+  },
   tabBar: {
     flexDirection: 'row',
     marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  tabSpacer: {
+    flex: 1,
+  },
+  tabLabelDetails: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderRadius: 8,
-  },
-  tabActive: {
+  tabLabelDetailsActive: {
     backgroundColor: '#3d1f1a',
+    borderColor: '#3d1f1a',
   },
-  tabText: {
-    fontSize: 15,
+  tabLabelDetailsInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabLabelDetailsText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#64748b',
+    color: '#5c1a1a',
   },
-  tabTextActive: {
+  tabLabelDetailsUnderline: {
+    textDecorationLine: 'underline' as const,
+  },
+  tabLabelDetailsTextActive: {
     color: '#fff',
   },
   tabContent: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', marginBottom: 12 },
+  segmentSectionTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a', marginBottom: 12, textAlign: 'center' as const },
   summarySection: { marginBottom: 16 },
   summarySectionTitle: { fontSize: 15, fontWeight: '600', color: '#0f172a', marginBottom: 8 },
   noData: { padding: 20, fontSize: 14, color: '#64748b', lineHeight: 21 },
@@ -723,6 +972,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(180, 83, 9, 0.3)',
   },
+  segmentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#94a3b8',
+    padding: 16,
+    marginBottom: 20,
+  },
   ingredientsSection: { marginBottom: 24 },
   ingredientCard: {
     backgroundColor: '#fff',
@@ -770,12 +1027,6 @@ const styles = StyleSheet.create({
   },
   artSweetenerSection: {
     marginBottom: 24,
-  },
-  artSweetenerSectionTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#0c4a6e',
-    marginBottom: 12,
   },
   artSweetenerIntro: {
     fontSize: 14,
@@ -830,6 +1081,86 @@ const styles = StyleSheet.create({
     color: '#64748b',
     lineHeight: 22,
   },
+  sweetenerTable: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+  },
+  sweetenerTableHeader: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+  },
+  sweetenerTableHeaderCell: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sweetenerTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  sweetenerRowSafe: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#22c55e',
+    backgroundColor: '#f0fdf4',
+  },
+  sweetenerRowModerate: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+    backgroundColor: '#fffbeb',
+  },
+  sweetenerRowHigh: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#dc2626',
+    backgroundColor: '#fef2f2',
+  },
+  sweetenerTableCell: {
+    fontSize: 14,
+    color: '#334155',
+  },
+  sweetenerNameCell: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sweetenerInfoIcon: {
+    padding: 4,
+    alignSelf: 'center',
+  },
+  sweetenerColName: { flex: 1.2 },
+  sweetenerColCategory: { flex: 1.1 },
+  sweetenerColGi: { flex: 0.5 },
+  sweetenerColCal: { flex: 0.5 },
+  maltitolAlert: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#b45309',
+    backgroundColor: '#fffbeb',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+  },
+  sweetenerFoundAs: {
+    fontSize: 13,
+    color: '#64748b',
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
   claimSection: { marginTop: 8 },
   claimRow: {
     backgroundColor: '#fff',
@@ -869,6 +1200,29 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   verdictBlock: { gap: 8, marginTop: 4 },
+  verdictBlockTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  claimEducationToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 0,
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+  },
+  claimEducationToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#5c1a1a',
+  },
   badge: {
     alignSelf: 'flex-start',
     paddingVertical: 4,
@@ -979,4 +1333,83 @@ const styles = StyleSheet.create({
   },
   modalSubmitDisabled: { opacity: 0.6 },
   modalSubmitText: { fontSize: 15, color: '#fff', fontWeight: '600' },
+  factCardOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  factCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fefaf9',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#e8ddd9',
+    borderLeftWidth: 4,
+    borderLeftColor: '#7c2d12',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  factCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8ddd9',
+    backgroundColor: '#f9f0ee',
+  },
+  factCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#5c1a1a',
+  },
+  factCardCloseBtn: {
+    padding: 4,
+  },
+  factCardScroll: {
+    maxHeight: '100%',
+  },
+  factCardBodyWrap: {
+    padding: 20,
+    paddingBottom: 24,
+  },
+  factCardLineGap: {
+    height: 8,
+  },
+  factCardIntroHeader: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#5c1a1a',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  factCardBulletHeader: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#5c1a1a',
+    lineHeight: 22,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  factCardBody: {
+    fontSize: 14,
+    color: '#475569',
+    lineHeight: 21,
+    marginBottom: 6,
+  },
+  factCardSpikeWarning: {
+    fontSize: 14,
+    color: '#dc2626',
+    lineHeight: 21,
+    marginBottom: 6,
+    fontWeight: '600',
+  },
 });

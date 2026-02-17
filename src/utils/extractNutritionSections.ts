@@ -1,6 +1,7 @@
 /**
- * Extracts only Nutrition Label and Ingredients sections from full OCR text.
- * Filters out marketing copy, random junk, and non-relevant content.
+ * Fuzzy Scoped Search: Extracts only Nutrition and Ingredients blocks from full OCR text.
+ * Uses fuzzy anchors to find section starts and strict stop markers so marketing text,
+ * disclaimers, and other label copy are never included in parsing.
  */
 
 // #region agent log
@@ -9,33 +10,19 @@ function _dbg(p: { location: string; message: string; data?: Record<string, unkn
 }
 // #endregion
 
-/** Nutrition section header proxies - match any of these to identify Nutrition zone. */
-const NUTRITION_HEADERS = [
-  /nutrition\s*facts/i,
-  /nutritional\s*information/i,
-  /nutrition\s*infromation/i,   // OCR typo
-  /nutrtional\s*information/i,  // OCR typo
-  /nutritonal\s*information/i,  // OCR typo
-  /nutrition\s*label/i,
-  /amount\s*per\s*\d+\s*(g|gm)/i,
-  /^amount\s*per/i,
-  /per\s*100\s*g\b/i,
-  /nutritive\s*value/i,
-];
+/** Fuzzy Ingredients Anchor: start of ingredients block (case-insensitive, optional spaces). */
+const INGREDIENTS_ANCHOR = /\b(?:ingredients?|ingridients?|ingrediants?|ingrediens)\s*:?\s*(?:\s|$)/i;
 
-/** Ingredients section header proxies - match any of these to identify Ingredients zone. */
-const INGREDIENTS_HEADERS = [
-  /^ingredients?\s*:?\s*$/im,
-  /^ingredients\s*$/im,
-  /^ingredients?\s*:?\s+/i,
-  /^ingridients?\s*:?\s*/i,     // OCR typo
-  /^ingrediants?\s*:?\s*/i,     // OCR typo
-  /^ingrediens\s*:?\s*/i,       // OCR typo
-  /\bingredients\s*:?\s*/i,
-  /\bingridients\s*:?\s*/i,
-];
+/** Fuzzy Nutrition Anchor: Nutrition Information, Nutritional Information, Nutrition Facts, typos, suffixes (# * (APPROX.)). */
+const NUTRITION_ANCHOR = /\b(?:nutrition(?:\s+information|\s*facts|\s*label)?|nutritional(?:\s+information|\s*facts|\.?\s*infromation)?|nutrtional\s*information|nutritonal\s*information)\s*(?:#|\*|\s*\(approx\.?\)|\s*\(approximate\))?\s*$/im;
 
-/** Minimal junk filter: only drop empty lines and pure symbols. Never delete possible nutrition/ingredient text. */
+/** Major headers that end the Ingredients block (do not include this line). */
+const INGREDIENTS_STOP_HEADERS = /\b(?:allergen\s+advice|allergy\s+information|storage\s*(?:instructions?)?|how\s+to\s+store|mrp\b|best\s+before|manufactured\s+by|manufactured\s+for|marketed\s+by|batch\s*(?:no\.?|#|number)?|fssai|license|pack\s*size|net\s*weight|address|contact)\b/i;
+
+/** Footer / end of Nutrition table (batch, mrp, manufactured, etc.). */
+const NUTRITION_TABLE_END = /\b(?:batch\s*(?:no\.?|#|number)?|mrp\b|mfg\.?\s*date|manufactured|marketed|best\s+before|ingredients?\s*:|\bfssai\b)/i;
+
+/** Minimal junk filter: drop empty lines and pure symbol lines. */
 function isJunkLine(line: string): boolean {
   const t = line.trim();
   if (t.length < 1) return true;
@@ -43,140 +30,90 @@ function isJunkLine(line: string): boolean {
   return false;
 }
 
-/** Bypass: never filter out lines — prevents deleting Vitamin C, Phosphorus, etc. */
-function isGarbageLine(_line: string): boolean {
-  return false;
+export interface ExtractedBlocks {
+  nutritionBlock: string;
+  ingredientsBlock: string;
 }
 
-const FOOD_WORDS = /oil|milk|sugar|water|salt|wheat|flour|cream|butter|vanilla|starch|soy|egg|corn|rice|fruit|vegetable|spice|emulsifier|preservative|acid|lecithin|dextrose|syrup|honey|molasses|curd|yogurt|whey|coconut|palm|vegetable|stabilizer|flavor|colour|color/i;
-
-/** True if line looks like ingredients by pattern (comma-separated, food words) even without "Ingredients:" header. */
-function isLikelyIngredientLine(line: string): boolean {
-  const t = line.trim();
-  if (t.length < 8) return false;
-  const hasCommas = (t.match(/,/g) ?? []).length >= 2;
-  const hasFoodWord = FOOD_WORDS.test(t);
-  return hasCommas && hasFoodWord;
+/**
+ * Returns combined extracted text (nutrition then ingredients) for display or fallback.
+ */
+export function getCombinedExtractedText(extracted: ExtractedBlocks): string {
+  const parts = [extracted.nutritionBlock, extracted.ingredientsBlock].filter((s) => s.trim().length > 0);
+  return parts.join('\n\n').trim();
 }
 
-/** True if line looks like it could be from nutrition table or ingredients. */
-/** True if line matches any Nutrition section header. */
-function isNutritionHeader(line: string): boolean {
-  return NUTRITION_HEADERS.some((h) => h.test(line)) || /^amount\s*per/i.test(line) || /^per\s*100\s*g\b/i.test(line);
-}
+/**
+ * Fuzzy-scoped extraction:
+ * - Finds Ingredients block: from fuzzy Ingredients anchor until next major header (Allergen Advice, Storage, MRP, etc.).
+ * - Finds Nutrition block: from fuzzy Nutrition anchor until end of table (Batch, MRP, Manufactured, or next section).
+ * Only these two blocks are returned; all other label text (marketing, disclaimers) is discarded.
+ */
+export function extractNutritionAndIngredientsOnly(fullOcrText: string): ExtractedBlocks {
+  const lines = fullOcrText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) {
+    return { nutritionBlock: '', ingredientsBlock: '' };
+  }
 
-/** True if line matches any Ingredients section header (including "Ingredients: foo, bar"). */
-function isIngredientsHeader(line: string): boolean {
-  if (/^(total|added)\s+sugar/i.test(line)) return false;
-  return INGREDIENTS_HEADERS.some((h) => h.test(line)) || /^ingredients?\s*:?\s+/i.test(line);
+  let ingredientsStartIdx = -1;
+  let nutritionStartIdx = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (INGREDIENTS_ANCHOR.test(line) && ingredientsStartIdx < 0) {
+      ingredientsStartIdx = i;
+    }
+    if (NUTRITION_ANCHOR.test(line) || /^(?:amount\s+per|per\s*100\s*g\b|nutritive\s+value)\b/i.test(line)) {
+      if (nutritionStartIdx < 0) nutritionStartIdx = i;
+    }
+  }
+
+  const nutritionLines: string[] = [];
+  const ingredientsLines: string[] = [];
+
+  if (nutritionStartIdx >= 0) {
+    for (let i = nutritionStartIdx; i < lines.length; i++) {
+      const line = lines[i];
+      if (isJunkLine(line)) continue;
+      if (i > nutritionStartIdx && NUTRITION_TABLE_END.test(line)) break;
+      if (i > nutritionStartIdx && INGREDIENTS_ANCHOR.test(line)) break;
+      nutritionLines.push(line);
+    }
+  }
+
+  if (ingredientsStartIdx >= 0) {
+    for (let i = ingredientsStartIdx; i < lines.length; i++) {
+      const line = lines[i];
+      if (isJunkLine(line)) continue;
+      if (i > ingredientsStartIdx && INGREDIENTS_STOP_HEADERS.test(line)) break;
+      if (i > ingredientsStartIdx && NUTRITION_ANCHOR.test(line)) break;
+      ingredientsLines.push(line);
+    }
+  }
+
+  const nutritionBlock = nutritionLines.join('\n').trim();
+  const ingredientsBlock = ingredientsLines.join('\n').trim();
+
+  _dbg({
+    location: 'extractNutritionSections.ts:extractNutritionAndIngredientsOnly',
+    message: 'Fuzzy scoped extraction done',
+    hypothesisId: 'A',
+    data: {
+      nutritionLineCount: nutritionLines.length,
+      ingredientsLineCount: ingredientsLines.length,
+      nutritionChars: nutritionBlock.length,
+      ingredientsChars: ingredientsBlock.length,
+    },
+  });
+
+  return { nutritionBlock, ingredientsBlock };
 }
 
 /** Exported for OCR zone filtering. Returns header type or null. */
 export function getHeaderType(line: string): 'nutrition' | 'ingredients' | null {
-  if (isNutritionHeader(line)) return 'nutrition';
-  if (isIngredientsHeader(line)) return 'ingredients';
+  if (NUTRITION_ANCHOR.test(line) || /^(?:amount\s+per|per\s*100\s*g\b|nutritive\s+value)\b/i.test(line)) return 'nutrition';
+  if (INGREDIENTS_ANCHOR.test(line)) return 'ingredients';
   return null;
-}
-
-function isRelevantLine(line: string): boolean {
-  const t = line.trim();
-  if (isJunkLine(t)) return false;
-  if (isGarbageLine(t)) return false;
-  if (NUTRITION_HEADERS.some((h) => h.test(t))) return true;
-  if (INGREDIENTS_HEADERS.some((h) => h.test(t))) return true;
-  if (/ingredients?\s*:?\s+/i.test(t)) return true;
-  if (isLikelyIngredientLine(t)) return true;
-  if (/^(amount|per\s*100|per\s*serving|energy|calories?|protein|carb|sugar|fat|sodium|cholesterol|fibre|fiber)/i.test(t)) return true;
-  if (/[\d.,]+\s*(g|gm|mg|kcal)/i.test(t)) return true;
-  if (/^\d+[.,]?\d*\s*%/.test(t)) return true;
-  if (/^[a-z][a-z\s,]+$/i.test(t) && t.length > 5) return true;
-  return false;
-}
-
-/** Bypass: never filter out lines — prevents deleting Vitamin C, Phosphorus, etc. */
-function isJunkOrNonSectionLine(_line: string): boolean {
-  return false;
-}
-
-/**
- * Extracts Nutrition Label and Ingredients sections from full OCR text.
- * When headers exist: drops lines before first header and between sections.
- * Returns filtered text with only relevant content.
- */
-export function extractNutritionAndIngredientsOnly(fullOcrText: string): string {
-  const lines = fullOcrText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 0) return fullOcrText;
-
-  const firstHeaderIdx = lines.findIndex((l) => isNutritionHeader(l) || isIngredientsHeader(l));
-  const hasHeaders = firstHeaderIdx >= 0;
-
-  let inNutrition = false;
-  let inIngredients = false;
-  let seenNutrition = false;
-  let seenIngredients = false;
-  const result: string[] = [];
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (hasHeaders && i < firstHeaderIdx) continue;
-
-    if (isNutritionHeader(line)) {
-      inNutrition = true;
-      inIngredients = false;
-      seenNutrition = true;
-      if (!isJunkLine(line)) result.push(line);
-      continue;
-    }
-
-    if (isIngredientsHeader(line)) {
-      inIngredients = true;
-      inNutrition = false;
-      seenIngredients = true;
-      result.push(line);
-      continue;
-    }
-
-    if (inNutrition) {
-      if (isGarbageLine(line) || isJunkOrNonSectionLine(line)) continue;
-      if (isRelevantLine(line) || /[\d.,]+\s*(g|gm|mg|kcal|%)/i.test(line)) {
-        result.push(line);
-      } else if (seenIngredients && /^(manufactured|mrp|best before|batch|fssai|license)/i.test(line)) {
-        break;
-      }
-      continue;
-    }
-
-    if (inIngredients) {
-      if (isGarbageLine(line) || isJunkOrNonSectionLine(line)) continue;
-      if (line.length > 2 && !isJunkLine(line)) {
-        result.push(line);
-      } else if (seenNutrition && (NUTRITION_HEADERS.some((h) => h.test(line)) || /^nutrition/i.test(line))) {
-        break;
-      }
-      continue;
-    }
-
-    if (!seenNutrition && !seenIngredients) {
-      if (isGarbageLine(line) || isJunkOrNonSectionLine(line)) continue;
-      if (isRelevantLine(line)) {
-        result.push(line);
-        if (isLikelyIngredientLine(line)) {
-          inIngredients = true;
-          seenIngredients = true;
-        } else {
-        inNutrition = true;
-        }
-      }
-    }
-  }
-
-  const joined = result.join('\n').trim();
-  const out = joined.length > 0 ? joined : fullOcrText;
-  // #region agent log
-  _dbg({ location: 'extractNutritionSections.ts:extractNutritionAndIngredientsOnly', message: 'Extraction done', hypothesisId: 'A', data: { lineCount: out.split(/\r?\n/).filter(Boolean).length, totalChars: out.length, sample: out.slice(0, 400) } });
-  // #endregion
-  return out;
 }
 
 /** Keyword catch-all: text before number must match one of these (order: longer first). */
@@ -204,11 +141,8 @@ const NUTRIENT_KEYWORDS: { pattern: RegExp; label: string }[] = [
   { pattern: /\bcarbs?\b/i, label: 'Total Carbohydrates' },
 ];
 
-/** Non-nutrition text — rows containing these are filtered out (Batch No, MRP, Ingredients). */
 const JUNK_ROW_PATTERNS = /\b(batch\s*no|batch\s*#|batch\s*number|mrp\b|mfg|manufactured\s*by|ingredients?\s*:|\bingredients\s*$)/i;
 
-
-/** Match text-before-number to a known nutrient; return clean label or null. */
 function matchNutrientLabel(textBefore: string): string | null {
   const t = textBefore.trim().replace(/[:–\-]\s*$/, '');
   if (JUNK_ROW_PATTERNS.test(t)) return null;
@@ -218,40 +152,7 @@ function matchNutrientLabel(textBefore: string): string | null {
   return null;
 }
 
-/** High-precision: for each line, find each number+unit; text BEFORE that number (since last number) = nutrient. Prioritize primary value; preserve exact unit. */
-function parseAllNutritionRows(line: string): { label: string; value: string }[] {
-  const t = line.trim();
-  if (t.length < 2) return [];
-
-  const results: { label: string; value: string }[] = [];
-  const seenLabels = new Set<string>();
-  let lastNumEnd = 0;
-
-  while (lastNumEnd < t.length) {
-    const rest = t.slice(lastNumEnd);
-    const numMatch = rest.match(/(\d+[.,]?\d*)\s*(kcal|gm|mg|g|%)\b/i) ?? rest.match(/(\d+[.,]?\d*)\s*%/) ?? rest.match(/(\d+[.,]?\d*)\b/);
-    if (!numMatch) break;
-
-    const numStart = lastNumEnd + (numMatch.index ?? 0);
-    const textBeforeThisNum = t.slice(lastNumEnd, numStart).trim();
-    const isCaloriesOrEnergy = /\b(calories?|energy)\b/i.test(textBeforeThisNum);
-    let unit = (numMatch[2] ?? '').trim();
-    if (!unit && isCaloriesOrEnergy) unit = 'kcal';
-    if (!unit && !isCaloriesOrEnergy) { lastNumEnd = numStart + numMatch[0].length; continue; }
-    const numStr = numMatch[1].replace(/,/g, '.');
-    const value = unit ? `${numStr} ${unit}` : numStr;
-    const label = matchNutrientLabel(textBeforeThisNum);
-
-    if (label && !seenLabels.has(label.toLowerCase())) {
-      seenLabels.add(label.toLowerCase());
-      results.push({ label, value });
-    }
-    lastNumEnd = numStart + numMatch[0].length;
-  }
-  return results;
-}
-
-/** Extract rows from full text (fallback). Same logic: first number+unit per nutrient, exact unit. */
+/** Extract rows from full text (fallback). */
 function extractRowsFromText(text: string): { label: string; value: string }[] {
   const results: { label: string; value: string }[] = [];
   const seenLabels = new Set<string>();
@@ -274,7 +175,10 @@ function extractRowsFromText(text: string): { label: string; value: string }[] {
     const isCaloriesOrEnergy = /\b(calories?|energy)\b/i.test(textBeforeThisNum);
     let unit = (numMatch[2] ?? '').trim();
     if (!unit && isCaloriesOrEnergy) unit = 'kcal';
-    if (!unit && !isCaloriesOrEnergy) { pos = absIdx + numMatch[0].length; continue; }
+    if (!unit && !isCaloriesOrEnergy) {
+      pos = absIdx + numMatch[0].length;
+      continue;
+    }
     const value = unit ? `${numStr} ${unit}` : numStr;
     const label = matchNutrientLabel(textBeforeThisNum);
 
@@ -290,127 +194,63 @@ function extractRowsFromText(text: string): { label: string; value: string }[] {
   return results;
 }
 
-function isLikelyIngredientOnly(line: string): boolean {
-  const t = line.trim();
-  if (t.length < 3 || t.length > 200) return false;
-  if (isJunkOrNonSectionLine(t)) return false;
-  if (/[\d.,]+\s*(g|mg|kcal)\b/.test(t) && !/,/.test(t)) return false; // looks like nutrition row
-  const letterRatio = (t.match(/[a-zA-Z]/g) ?? []).length / Math.max(t.length, 1);
-  if (letterRatio < 0.5) return false;
-  return true;
-}
-
 export interface StructuredSummary {
   ingredients: string[];
   nutritionRows: { label: string; value: string }[];
 }
 
-/** Nutrient name without number — for merging fragmented OCR (Calories + 20, Dium + 150 mg). */
-const NUTRIENT_NAME_ONLY = /^(calories?|energy|fat|protein|carb|sugar|sodium|dium|sodum|cholesterol|fibre|fiber|added\s+sugar|total\s+sugar|net\s+carb|dietary\s+fibre|dietary\s+fiber|trans\s+fat|saturated|phosphorus|vitamin\s+c|porserving)\s*$/i;
-
-/** Line ends with nutrient name (e.g. "Vitamin C" at end, orphan label). */
-const NUTRIENT_NAME_END = /(calories?|energy|fat|protein|carb|sugar|sodium|dium|sodum|cholesterol|fibre|fiber|added\s+sugar|total\s+sugar|net\s+carb|dietary\s+fibre|dietary\s+fiber|trans\s+fat|saturated|phosphorus|vitamin\s+c|porserving)\s*$/i;
-
-/** Number + optional unit — "20", "0.0g", "50.75mg", "1.2%" */
-const VALUE_LINE = /^[\d.,]+\s*(g|gm|mg|kcal|%)?$/i;
-
-/**
- * Parses extracted text into structured Ingredients and Nutrition table.
- * Merges fragmented OCR lines (e.g. "Calories" + "20").
- */
 export function parseStructuredSummary(extractedText: string): StructuredSummary {
-  let lines = extractedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const merged: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const next = lines[i + 1];
-    const shouldMerge =
-      (NUTRIENT_NAME_ONLY.test(line) && next && VALUE_LINE.test(next)) ||
-      (NUTRIENT_NAME_END.test(line) && next && VALUE_LINE.test(next));
-    if (shouldMerge) {
-      merged.push(line + ' ' + next);
-      i++;
-    } else {
-      merged.push(line);
-    }
-  }
-  lines = merged;
-  // #region agent log
-  _dbg({ location: 'extractNutritionSections.ts:parseStructuredSummary', message: 'After merge', hypothesisId: 'D', data: { lineCount: lines.length, sampleLines: lines.slice(0, 15).map((l) => l.slice(0, 70)) } });
-  // #endregion
+  let cleanText = extractedText
+    .toLowerCase()
+    .replace(/[^a-z0-9.,%]/g, ' ')
+    .replace(/([a-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([a-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ');
 
-  const ingredients: string[] = [];
   const nutritionRows: { label: string; value: string }[] = [];
-  const seenNutritionKeys = new Set<string>();
+  const boundaries =
+    'energy|calories|kcal|protein|carbohydrate|carbs|sugar|fat|sodium|salt|cholesterol';
 
-  let inIngredients = false;
-  let inNutrition = false;
+  const patterns = [
+    { label: 'Energy', match: 'energy|calories|kcal' },
+    { label: 'Protein', match: 'protein|proteen' },
+    { label: 'Total Carbohydrates', match: 'carbohydrate|carbohydrates|carbs' },
+    { label: 'Added Sugars', match: 'added sugar|added sugars' },
+    { label: 'Total Sugars', match: 'total sugar|total sugars|sugars|sugar' },
+    { label: 'Trans Fat', match: 'trans fat|trans fats' },
+    { label: 'Saturated Fat', match: 'saturated fat|saturated fats' },
+    { label: 'Total Fat', match: 'total fat|fat|fats' },
+    { label: 'Sodium', match: 'sodium|salt' },
+  ];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    if (/^ingredients?\s*:?\s*/i.test(line) && !/^(total|added)\s+sugar/i.test(line)) {
-      inIngredients = true;
-      inNutrition = false;
-      const afterColon = line.replace(/^ingredients?\s*:?\s*/i, '').trim();
-      if (afterColon.length > 2 && isLikelyIngredientOnly(afterColon)) {
-        ingredients.push(afterColon);
-      }
-      continue;
-    }
-
-    if (/nutrition\s*(al)?\s*(infromation|information|label|facts)/i.test(line) || /^amount\s*per/i.test(line) || /^per\s*serving\s*\(/i.test(line) || /^porserving/i.test(line)) {
-      inNutrition = true;
-      inIngredients = false;
-      continue;
-    }
-
-    if (inIngredients) {
-      if (/nutrition\s*(al)?\s*(infromation|information|label)/i.test(line)) {
-        inNutrition = true;
-        inIngredients = false;
-      } else if (isLikelyIngredientOnly(line) && !isGarbageLine(line)) {
-        ingredients.push(line);
-      }
-      continue;
-    }
-
-    // Try to parse as nutrition row(s) from any line (handles concatenated OCR: "Energy 490kcal Protein 7.8g Carbohydrate 65g...")
-    const rows = parseAllNutritionRows(line);
-    for (const row of rows) {
-      const key = row.label.toLowerCase().replace(/\s+/g, ' ');
-      if (!seenNutritionKeys.has(key)) {
-        seenNutritionKeys.add(key);
-        nutritionRows.push(row);
+  patterns.forEach(({ label, match }) => {
+    if (nutritionRows.some((row) => row.label === label)) return;
+    const regex = new RegExp(
+      `(?:${match})(?:(?!(?:${boundaries})).){0,35}?(\\d+[.,]?\\d*)(?!\\s*(?:%|percent))`,
+      'g'
+    );
+    let matchResult: RegExpExecArray | null;
+    while ((matchResult = regex.exec(cleanText)) !== null) {
+      const val = parseFloat(matchResult[1].replace(',', '.'));
+      if (val !== 100 && val < 10000) {
+        nutritionRows.push({ label, value: matchResult[1].replace(',', '.') });
+        cleanText = cleanText.replace(matchResult[0], ' consumed ');
+        break;
       }
     }
-    if (rows.length === 0 && !inNutrition && !inIngredients && isLikelyIngredientOnly(line) && !isGarbageLine(line)) {
-      ingredients.push(line);
-    }
+  });
+
+  let ingredients: string[] = [];
+  const ingredientsMatch = extractedText
+    .toLowerCase()
+    .match(/ingredients?[\s:;]+(.*?)(?:nutrition|batch|mfg|mrp|best before|$)/);
+  if (ingredientsMatch && ingredientsMatch[1]) {
+    ingredients = ingredientsMatch[1]
+      .split(/[,;.]/)
+      .map((i) => i.trim())
+      .filter((i) => i.length > 2);
   }
 
-  // Fallback: always run full-text capture to supplement line-by-line parsing
-  const shouldRunFallback = extractedText.length > 30;
-  if (shouldRunFallback) {
-    const fallback = extractFromConcatenatedOcr(extractedText);
-    // #region agent log
-    _dbg({ location: 'extractNutritionSections.ts:parseStructuredSummary', message: 'Fallback used', hypothesisId: 'D', data: { fallbackRows: fallback.nutritionRows.length, fallbackLabels: fallback.nutritionRows.map((r) => r.label), hadExisting: nutritionRows.length } });
-    // #endregion
-    if (nutritionRows.length === 0 && (fallback.ingredients.length > 0 || fallback.nutritionRows.length > 0)) {
-      return fallback;
-    }
-    // Supplement sparse results: merge in any extra rows from fallback
-    for (const row of fallback.nutritionRows) {
-      const key = row.label.toLowerCase().replace(/\s+/g, ' ');
-      if (!seenNutritionKeys.has(key)) {
-        seenNutritionKeys.add(key);
-        nutritionRows.push(row);
-      }
-    }
-  }
-  // #region agent log
-  _dbg({ location: 'extractNutritionSections.ts:parseStructuredSummary', message: 'Final result', data: { nutritionRowsCount: nutritionRows.length, labels: nutritionRows.map((r) => r.label) } });
-  // #endregion
   return { ingredients, nutritionRows };
 }
 
@@ -418,10 +258,13 @@ export function parseStructuredSummary(extractedText: string): StructuredSummary
 function extractFromConcatenatedOcr(text: string): StructuredSummary {
   const ingredients: string[] = [];
   const nutritionRows = extractRowsFromText(text);
-
   const ingMatch = text.match(/ingredients?\s*:?\s*([^B]*?)(?:Batch|Mfg\.?\s*date|Best\s+before|MRP|Manufactured|Marketed|$)/is);
   if (ingMatch) {
-    const list = ingMatch[1].replace(/\s+/g, ' ').split(/[,;]/).map((s) => s.replace(/\([^)]*\)/g, '').replace(/^["']|["']$/g, '').trim()).filter((s) => s.length >= 2 && s.length < 80);
+    const list = ingMatch[1]
+      .replace(/\s+/g, ' ')
+      .split(/[,;]/)
+      .map((s) => s.replace(/\([^)]*\)/g, '').replace(/^["']|["']$/g, '').trim())
+      .filter((s) => s.length >= 2 && s.length < 80);
     for (const s of list) {
       if (/^\d+[.,]?\d*$/.test(s)) continue;
       if (/^["\$%0-9\s]+$/.test(s)) continue;

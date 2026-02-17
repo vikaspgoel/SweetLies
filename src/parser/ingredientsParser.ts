@@ -5,10 +5,7 @@
 
 import { SUGAR_ALIASES } from '@/src/knowledge/sugarAliases';
 import { FAT_IDENTIFIERS } from '@/src/knowledge/fatIdentifiers';
-import {
-  ARTIFICIAL_SWEETENER_INFO,
-  type ArtificialSweetenerMatch,
-} from '@/src/knowledge/artificialSweetenerInfo';
+import { SWEETENER_TABLE, type SweetenerMatch } from '@/src/knowledge/artificialSweetenerInfo';
 
 export interface SugarMatch {
   alias: string;
@@ -34,15 +31,6 @@ function escapeRegex(s: string): string {
 /** INS numbers for artificial sweeteners - extract from "Sweetener (960)" style text. */
 const INS_NUMBERS = [968, 955, 960, 950, 951, 961, 969, 957, 954, 965, 420, 967, 953, 421];
 
-/** INS numbers that map to polyols (count as sugar). */
-const INS_POLYOL_TO_ALIAS: Record<number, string> = {
-  965: 'maltitol',
-  420: 'sorbitol',
-  967: 'xylitol',
-  953: 'isomalt',
-  421: 'mannitol',
-};
-
 /** Extracts INS numbers from lines like "Sweetener (960)" or "Sweeteners (960, 955)". */
 function extractInsNumbersFromLine(line: string): string[] {
   if (!/\bsweeteners?\b/i.test(line)) return [];
@@ -65,37 +53,6 @@ function termMatches(ingredient: string, term: string): boolean {
   const normalized = ingredient.toLowerCase();
   const re = new RegExp('\\b' + escapeRegex(term) + '\\b', 'i');
   return re.test(normalized);
-}
-
-/** Safe substitutes: do not count as sugar. Excluded from triggering "sugar is there". */
-export const SAFE_SUBSTITUTES = [
-  'erythritol',
-  'stevia',
-  'monk fruit',
-  'thaumatin',
-  'sucralose',
-  'aspartame',
-  'acesulfame k',
-  'acesulfame potassium',
-  'ace-k',
-  'allulose',
-  'neotame',
-  'saccharin',
-];
-
-/** Moderate-impact polyols: have significant glycemic impact; counted as sugar and trigger a warning. */
-export const MODERATE_IMPACT_POLYOLS = [
-  'maltitol',
-  'sorbitol',
-  'xylitol',
-  'isomalt',
-  'mannitol',
-  'polydextrose',
-];
-
-function isSafeSubstituteOnly(ingredient: string): boolean {
-  const low = ingredient.toLowerCase();
-  return SAFE_SUBSTITUTES.some((t) => low.includes(t));
 }
 
 /**
@@ -150,6 +107,9 @@ function isNegatedSugarPhrase(text: string): boolean {
   if (/\bno\s+sucrose\b/i.test(t) && /added|contain/i.test(t)) return true;
   // "Not a significant source of sugar" = product has little/no sugar (incl. OCR typo "ot" for "not")
   if (/\b(not|ot|n0t)\s+a\s+significant\s+source\s+of\s+(sugar|sucrose)\b/i.test(t)) return true;
+  // OCR-truncated disclaimer fragment (e.g. "urce of sugar" from "Not a significant source of sugar") — never count as sugar
+  if (/^\s*(urce|ource|source|significant\s+source)\s+of\s+(sugar|sucrose)\s*\.?\s*$/i.test(t)) return true;
+  if (/\b(urce|ource|source|significant\s+source)\s+of\s+(sugar|sucrose)\s*\.?\s*$/i.test(t) && t.length < 80) return true;
   if (/\bnegligible\s+(source\s+of\s+)?(sugar|sucrose)\b/i.test(t)) return true;
   if (/\btrace\s+(amount\s+of\s+)?(sugar|sucrose)\b/i.test(t)) return true;
   if (/\binsignificant\s+source\s+of\s+(sugar|sucrose)\b/i.test(t)) return true;
@@ -185,7 +145,7 @@ function findMatches(
 ): string[] {
   const found: string[] = [];
   for (const ing of ingredients) {
-    if (isSafeSubstituteOnly(ing) || isNutritionTableRow(ing) || isNegatedSugarPhrase(ing) || isSugarAlcoholOrPolyolPhrase(ing)) continue;
+    if (isNutritionTableRow(ing) || isNegatedSugarPhrase(ing) || isSugarAlcoholOrPolyolPhrase(ing)) continue;
     for (const term of dictionary) {
       if (termMatches(ing, term) && !found.includes(term)) {
         found.push(term);
@@ -203,7 +163,7 @@ function findSugarMatches(
   const seen = new Set<string>();
   const result: SugarMatch[] = [];
   for (const ing of ingredients) {
-    if (isSafeSubstituteOnly(ing) || isNutritionTableRow(ing) || isNegatedSugarPhrase(ing) || isSugarAlcoholOrPolyolPhrase(ing)) continue;
+    if (isNutritionTableRow(ing) || isNegatedSugarPhrase(ing) || isSugarAlcoholOrPolyolPhrase(ing)) continue;
     for (const term of dictionary) {
       if (termMatches(ing, term)) {
         const key = `${term}:${ing}`;
@@ -218,23 +178,31 @@ function findSugarMatches(
 }
 
 /**
- * Finds artificial sweeteners in raw ingredients.
- * Used when verdict is NO_SUGAR to show "If no sugar, what is making this sweet?"
+ * Finds sweeteners (artificial + polyols) in raw ingredients.
+ * Used for "Artificial Sweeteners Present?" section - shown for every scan.
  */
-export function findArtificialSweetenerMatches(
-  rawIngredients: string[]
-): ArtificialSweetenerMatch[] {
+export function findSweetenerMatches(rawIngredients: string[]): SweetenerMatch[] {
   const seen = new Set<string>();
-  const result: ArtificialSweetenerMatch[] = [];
+  const result: SweetenerMatch[] = [];
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/ff6a9878-d05f-4e10-be3f-b600058f7c64', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ingredientsParser.ts:findSweetenerMatches', message: 'rawIngredients received', data: { rawIngredients, count: rawIngredients.length }, timestamp: Date.now(), hypothesisId: 'H3' }) }).catch(() => {});
+  // #endregion
   for (const ing of rawIngredients) {
     if (isNutritionTableRow(ing)) continue;
     const low = ing.toLowerCase();
-    for (const info of ARTIFICIAL_SWEETENER_INFO) {
+    for (const info of SWEETENER_TABLE) {
       if (seen.has(info.name)) continue;
       const found = info.aliases.some((alias) => {
         const re = new RegExp('\\b' + escapeRegex(alias) + '\\b', 'i');
         return re.test(low);
       });
+      // #region agent log
+      if (info.name === 'Stevia' && /sweet|steviol/i.test(ing)) {
+        const aliasPlural = /\bsteviol glycosides\b/i.test(low);
+        const aliasSingular = /\bsteviol glycoside\b/i.test(low);
+        fetch('http://127.0.0.1:7244/ingest/ff6a9878-d05f-4e10-be3f-b600058f7c64', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ingredientsParser.ts:findSweetenerMatches', message: 'Stevia match check', data: { ing, low, found, aliasPlural, aliasSingular, steviaAliases: info.aliases }, timestamp: Date.now(), hypothesisId: 'H1,H5' }) }).catch(() => {});
+      }
+      // #endregion
       if (found) {
         seen.add(info.name);
         result.push({ verbatim: ing.trim(), info });
@@ -253,11 +221,23 @@ function shouldPreserveParentheticalContent(content: string): boolean {
   for (const alias of SUGAR_ALIASES) {
     if (low.includes(alias.toLowerCase())) return true;
   }
-  for (const info of ARTIFICIAL_SWEETENER_INFO) {
+  for (const info of SWEETENER_TABLE) {
     for (const a of info.aliases) {
-      if (low.includes(a.toLowerCase())) return true;
+      if (low.includes(a.toLowerCase())) {
+        // #region agent log
+        if (/steviol|glycoside/i.test(content)) {
+          fetch('http://127.0.0.1:7244/ingest/ff6a9878-d05f-4e10-be3f-b600058f7c64', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ingredientsParser.ts:shouldPreserveParentheticalContent', message: 'parenthetical preserved', data: { content, matchedAlias: a }, timestamp: Date.now(), hypothesisId: 'H4' }) }).catch(() => {});
+        }
+        // #endregion
+        return true;
+      }
     }
   }
+  // #region agent log
+  if (/steviol|glycoside/i.test(content)) {
+    fetch('http://127.0.0.1:7244/ingest/ff6a9878-d05f-4e10-be3f-b600058f7c64', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ingredientsParser.ts:shouldPreserveParentheticalContent', message: 'parenthetical NOT preserved', data: { content, low }, timestamp: Date.now(), hypothesisId: 'H2,H4' }) }).catch(() => {});
+  }
+  // #endregion
   return false;
 }
 
@@ -309,7 +289,15 @@ export function parseIngredients(ocrText: string): ClassifiedIngredients {
 
     const parts = line
       .split(/[,;]/)
-      .map((s) => stripParenthesesExceptInsAndSweeteners(s).trim())
+      .map((s) => {
+        const after = stripParenthesesExceptInsAndSweeteners(s).trim();
+        // #region agent log
+        if (/sweetener|steviol/i.test(s)) {
+          fetch('http://127.0.0.1:7244/ingest/ff6a9878-d05f-4e10-be3f-b600058f7c64', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ingredientsParser.ts:parseIngredients', message: 'chunk before/after strip', data: { before: s, after }, timestamp: Date.now(), hypothesisId: 'H2,H3' }) }).catch(() => {});
+        }
+        // #endregion
+        return after;
+      })
       .filter((s) => s.length > 1);
     let lineSoFar = '';
 
@@ -324,19 +312,9 @@ export function parseIngredients(ocrText: string): ClassifiedIngredients {
     previousLine = line;
   }
 
-  let sugarAliasesFound = findMatches(raw, SUGAR_ALIASES);
+  const sugarAliasesFound = findMatches(raw, SUGAR_ALIASES);
   const sugarMatches = findSugarMatches(raw, SUGAR_ALIASES);
   const fatIdentifiersFound = findMatches(raw, FAT_IDENTIFIERS);
-
-  // Map INS polyol numbers (965, 420, etc.) to sugar aliases
-  const insPolyolAliases = new Set<string>();
-  for (const ing of raw) {
-    const num = parseInt(ing.trim(), 10);
-    if (!isNaN(num) && INS_POLYOL_TO_ALIAS[num]) {
-      insPolyolAliases.add(INS_POLYOL_TO_ALIAS[num]);
-    }
-  }
-  sugarAliasesFound = [...new Set([...sugarAliasesFound, ...insPolyolAliases])];
 
   return {
     sugarAliasesFound,

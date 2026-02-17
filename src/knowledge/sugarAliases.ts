@@ -3,6 +3,9 @@
  * Used to detect hidden sugars in "No Added Sugar" claims.
  * Organized by metabolic logic: high-GI additives, regional terms, stealth sugars.
  * Longer / more specific terms listed first to improve match quality.
+ *
+ * Aliases are matched with word boundaries; add both singular and plural (or other
+ * common label variants) when labels use either form to avoid missed detections.
  */
 export const SUGAR_ALIASES: string[] = [
   // --- High GI Additives (Metabolic Sugars) ---
@@ -41,8 +44,11 @@ export const SUGAR_ALIASES: string[] = [
 
   // --- Fruit Based (Stealth Sugars) ---
   'fruit juice concentrate',
+  'fruit juice concentrates',
   'apple juice concentrate',
+  'apple juice concentrates',
   'grape juice concentrate',
+  'grape juice concentrates',
   'date paste',
   'date syrup',
   'dates',
@@ -117,16 +123,9 @@ export const SUGAR_ALIASES: string[] = [
   'malt extract',
   'ethyl maltol',
 
-  // --- Moderate-impact polyols (significant glycemic impact) ---
-  'maltitol',
-  'sorbitol',
-  'xylitol',
-  'isomalt',
-  'mannitol',
-  'polydextrose',
-
   // --- Essential catch-alls (safety nets) ---
   'concentrate',
+  'concentrates',
   'nectar',
   'malt',
 ];
