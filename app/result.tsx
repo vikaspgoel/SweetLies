@@ -66,6 +66,31 @@ function getCleanVerbatim(verbatim: string, alias: string): string {
   return stripVerbatimJunk(v);
 }
 
+function getReadabilityScore(text: string): number {
+  const cleaned = sanitizeLabelSummary(text || '');
+  if (!cleaned) return 1;
+  const rawLength = cleaned.length;
+  const lines = cleaned.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const wordCount = (cleaned.match(/[A-Za-z]{2,}/g) ?? []).length;
+  const digitCount = (cleaned.match(/\d/g) ?? []).length;
+  const keywordCount = (cleaned.match(/sugar|ingredient|calorie|energy|fat|protein|carb|sodium|per\s*100|kcal/gi) ?? []).length;
+  let score = 10;
+  if (rawLength < 80) score = 1;
+  else if (rawLength < 140) score = 2;
+  else if (rawLength < 220) score = 3;
+  else if (rawLength < 300) score = 4;
+  else if (rawLength < 380) score = 5;
+  else if (rawLength < 460) score = 6;
+  else if (rawLength < 540) score = 7;
+  else if (rawLength < 620) score = 8;
+  else if (rawLength < 700) score = 9;
+  if (keywordCount === 0) score = Math.min(score, 2);
+  if (wordCount < 12) score = Math.min(score, 2);
+  if (digitCount < 4) score = Math.min(score, 3);
+  if (lines.length < 3) score = Math.min(score, 3);
+  return Math.max(1, Math.min(10, score));
+}
+
 /** Split fact card content into segments; spike warning segments are marked for red styling. */
 function getFactCardSegments(content: string): { text: string; isSpikeWarning: boolean }[] {
   const segments: { text: string; isSpikeWarning: boolean }[] = [];
@@ -248,14 +273,21 @@ export default function ResultScreen() {
 
   const showClaimVerdict = claimResults.length > 0 && claimResults[0].claim !== 'No claims to verify';
 
-  const rawLength = labelCombined.length;
-  const hasNutritionKeywords = /sugar|ingredient|calorie|energy|fat|protein|carb|sodium|per\s*100|kcal|\d+\s*g\b/i.test(labelCombined);
-  const readVeryLittle = rawLength < 120 || !hasNutritionKeywords;
+  const fullReadText = (rawLabelText.length > 0 ? rawLabelText : labelText).join('\n');
+  const readabilityScore = getReadabilityScore(fullReadText);
+  const extractedForReadability = extractNutritionAndIngredientsOnly(fullReadText || '');
+  const summaryForReadability = buildStructuredSummary(extractedForReadability, fullReadText || '');
+  const hasAnyLabelData =
+    extractedForReadability.nutritionBlock.trim().length > 0 ||
+    extractedForReadability.ingredientsBlock.trim().length > 0 ||
+    summaryForReadability.ingredients.length > 0 ||
+    summaryForReadability.nutritionRows.length > 0;
+  const isInconclusive = readabilityScore <= 1 && !hasAnyLabelData;
+  const isLowReadability = !isInconclusive && readabilityScore >= 2 && readabilityScore <= 3;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* 1. FINAL VERDICT - only in overview tab; Nutrition Info tab shows raw table only */}
-      {activeTab === 'overview' && !readVeryLittle && (
+      {activeTab === 'overview' && !isInconclusive && (
         <View style={[styles.finalVerdict, sugarVerdict === 'NO_SUGAR' ? styles.finalVerdictNoSugar : styles.finalVerdictSugar]}>
           <Text style={styles.finalVerdictLabel}>Final Verdict</Text>
           <Text style={styles.finalVerdictText}>
@@ -264,16 +296,24 @@ export default function ResultScreen() {
         </View>
       )}
 
-      {activeTab === 'overview' && readVeryLittle && (
-        <View style={styles.littleReadBanner}>
-          <Text style={styles.littleReadTitle}>We only read a small amount from this photo</Text>
-          <Text style={styles.littleReadText}>
-            For better results: use a clear, flat photo of the full ingredients list and nutrition table; avoid glare. Try another photo focused on the label text.
+      {activeTab === 'overview' && isLowReadability && (
+        <View style={styles.readabilityNote}>
+          <Text style={styles.readabilityNoteText}>
+            Your label clarity was low. You may retry with a clearer photo of the ingredients and nutrition table.
           </Text>
         </View>
       )}
 
-      {activeTab === 'overview' && !readVeryLittle && sugarVerdict === 'NO_SUGAR' && sweetenerMatches.length === 0 && (
+      {activeTab === 'overview' && isInconclusive && (
+        <View style={styles.littleReadBanner}>
+          <Text style={styles.littleReadTitle}>Inconclusive verdict</Text>
+          <Text style={styles.littleReadText}>
+            The label text is too unclear to verify. You may retry with a clearer photo of the ingredients and nutrition table.
+          </Text>
+        </View>
+      )}
+
+      {activeTab === 'overview' && !isInconclusive && sugarVerdict === 'NO_SUGAR' && sweetenerMatches.length === 0 && (
         <View style={styles.imageWarningBanner}>
           <Text style={styles.imageWarningText}>
             Try a clearer image of the ingredients list and nutrition label.
@@ -818,6 +858,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#b45309',
     lineHeight: 21,
+  },
+  readabilityNote: {
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  readabilityNoteText: {
+    fontSize: 13,
+    color: '#475569',
+    lineHeight: 19,
+    textAlign: 'center',
   },
   imageWarningBanner: {
     backgroundColor: '#fef3c7',
