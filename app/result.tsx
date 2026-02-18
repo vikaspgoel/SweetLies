@@ -511,7 +511,7 @@ export default function ResultScreen() {
           )}
 
           {/* Artificial Sweeteners Present? - shown for every scan */}
-          {!readVeryLittle && (
+          {!isInconclusive && (
             <View style={[styles.artSweetenerSection, styles.segmentCard]}>
               <Text style={styles.segmentSectionTitle}>Artificial Sweeteners Present?</Text>
               {sweetenerMatches.length > 0 ? (
@@ -576,7 +576,7 @@ export default function ResultScreen() {
                 <View key={i} style={styles.claimRow}
                 >
                   <Text style={styles.claimNameHighlight}>{r.claim}</Text>
-                  {!readVeryLittle && r.reason ? (
+                  {!isInconclusive && r.reason ? (
                     <View style={styles.verdictBlock}>
                       <Text style={styles.verdictBlockTitle}>What we found</Text>
                       <Text style={styles.reasonProminent}>{r.reason}</Text>
