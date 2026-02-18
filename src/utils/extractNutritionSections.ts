@@ -200,24 +200,35 @@ export interface StructuredSummary {
 }
 
 function normalizeIngredientToken(token: string): string {
-  return token.replace(/\s+/g, ' ').replace(/^[\-\d\)\.]+\s*/, '').trim();
+  return token
+    .replace(/\((?:[^a-zA-Z]*\d[^)]*)\)/g, '')
+    .replace(/\b\d+%/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\-\d\)\.]+\s*/, '')
+    .trim();
 }
 
 function isLikelyIngredientToken(token: string): boolean {
   if (token.length < 2 || token.length > 120) return false;
   if (!/[a-zA-Z]{2,}/.test(token)) return false;
   if (/^(contains|may contain|allergen|allergy|storage|best before|mrp|batch|manufactured|marketed|fssai)\b/i.test(token)) return false;
+  if (/(?:per\s*100|per\s*serving|%rda|calorie|nutrition|facts|trans\s*fat|cholesterol|sodium)\b/i.test(token)) return false;
   if (/^\d+[.,]?\d*$/.test(token)) return false;
   return true;
 }
 
 export function extractIngredientsList(ingredientsBlock: string): string[] {
-  const cleaned = ingredientsBlock
+  let cleaned = ingredientsBlock
     .replace(/\r?\n/g, ' ')
     .replace(/\bingredients?\b\s*:?\s*/i, '')
-    .replace(/[•·]/g, ',')
+    .replace(/[•·|]/g, ',')
+    .replace(/[–—]/g, ',')
     .replace(/\s+/g, ' ')
     .trim();
+  const stopMatch = cleaned.match(/\b(batch|mfg|mrp|best before|manufactured|marketed|fssai|license|storage|allergen)\b/i);
+  if (stopMatch?.index != null) {
+    cleaned = cleaned.slice(0, stopMatch.index).trim();
+  }
   if (!cleaned) return [];
   const tokens = cleaned.split(/[,;]+/).map((t) => normalizeIngredientToken(t)).filter(Boolean);
   const results: string[] = [];

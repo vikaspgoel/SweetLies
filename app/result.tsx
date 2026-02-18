@@ -122,10 +122,7 @@ export default function ResultScreen() {
   }>();
   const { resetScan, labelText: contextLabelText } = useScan();
 
-  const labelText = (() => {
-    if (contextLabelText && contextLabelText.length > 0) {
-      return contextLabelText;
-    }
+  const rawLabelText = (() => {
     if (params.labelText) {
       try {
         return JSON.parse(params.labelText) as string[];
@@ -135,6 +132,8 @@ export default function ResultScreen() {
     }
     return [];
   })();
+
+  const labelText = contextLabelText && contextLabelText.length > 0 ? contextLabelText : rawLabelText;
 
   const selectedClaim = params.selectedClaim ?? '';
   const claimLabel = params.claimLabel ?? '';
@@ -309,15 +308,25 @@ export default function ResultScreen() {
           <Text style={styles.sectionTitle}>Summary of the label</Text>
           <Text style={styles.rawOcrHint}>Information captured under Ingredients and Nutrition Label.</Text>
           {((): React.ReactNode => {
-            const full = sanitizeLabelSummary(labelCombined || '');
-            const extractedBlocks = extractNutritionAndIngredientsOnly(labelCombined || '');
+            const fullTextLines = (rawLabelText.length > 0 ? rawLabelText : labelText).join('\n');
+            const full = sanitizeLabelSummary(fullTextLines || '');
+            const extractedBlocks = extractNutritionAndIngredientsOnly(full || '');
             const { ingredients, nutritionRows } = buildStructuredSummary(extractedBlocks, full);
-            const extractedCombined = sanitizeLabelSummary(getCombinedExtractedText(extractedBlocks) || '');
             const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
             const fullLines = full.split('\n').map((l) => l.trim()).filter(Boolean);
-            const extractedLines = extractedCombined.split('\n').map((l) => l.trim()).filter(Boolean);
-            const extractedSet = new Set(extractedLines.map((l) => normalize(l)));
-            const discardedLines = fullLines.filter((line) => !extractedSet.has(normalize(line)));
+            const ingredientTokens = ingredients.map((i) => normalize(i)).filter(Boolean);
+            const nutrientLabels = nutritionRows.map((r) => normalize(r.label)).filter(Boolean);
+            const nutrientValues = nutritionRows.map((r) => normalize(r.value)).filter(Boolean);
+            const isUsedLine = (line: string) => {
+              const n = normalize(line);
+              if (!n) return false;
+              if (n.includes('ingredients') || n.includes('nutrition')) return true;
+              if (ingredientTokens.some((t) => t && n.includes(t))) return true;
+              if (nutrientLabels.some((t) => t && n.includes(t))) return true;
+              if (nutrientValues.some((t) => t && n.includes(t))) return true;
+              return false;
+            };
+            const discardedLines = fullLines.filter((line) => !isUsedLine(line));
 
             return (
               <>
@@ -379,7 +388,8 @@ export default function ResultScreen() {
             <View style={styles.rawOcrBox}>
               <Text style={styles.rawOcrHint}>Unedited text from the scanner. If sugar or numbers are missing here, try a clearer photo.</Text>
               {((): React.ReactNode => {
-              const full = sanitizeLabelSummary(labelCombined || '') || '(empty)';
+              const fullRawText = (rawLabelText.length > 0 ? rawLabelText : labelText).join('\n');
+              const full = sanitizeLabelSummary(fullRawText || '') || '(empty)';
               const lines = full.split('\n');
               if (lines.length <= 1) return <Text style={styles.rawOcrText}>{full}</Text>;
               return lines.map((line, idx) => (
