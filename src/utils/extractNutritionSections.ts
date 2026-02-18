@@ -220,7 +220,7 @@ function isLikelyIngredientToken(token: string): boolean {
 export function extractIngredientsList(ingredientsBlock: string): string[] {
   let cleaned = ingredientsBlock
     .replace(/\r?\n/g, ' ')
-    .replace(/\bingredients?\b\s*:?\s*/i, '')
+    .replace(/ingredients?\s*:?\s*/i, '')
     .replace(/[•·|]/g, ',')
     .replace(/[–—]/g, ',')
     .replace(/\s+/g, ' ')
@@ -241,6 +241,49 @@ export function extractIngredientsList(ingredientsBlock: string): string[] {
     results.push(token);
   }
   return results;
+}
+
+function normalizeIngredientsHeaderSpacing(line: string): string {
+  return line.replace(/(ingredients?)([A-Za-z])/i, '$1 $2');
+}
+
+function buildIngredientCandidate(lines: string[], startIdx: number): string {
+  const parts: string[] = [];
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i];
+    if (isJunkLine(line)) continue;
+    if (i > startIdx && (INGREDIENTS_STOP_HEADERS.test(line) || NUTRITION_ANCHOR.test(line))) break;
+    parts.push(line);
+    if (parts.join(' ').length > 900) break;
+  }
+  return parts.join(' ').trim();
+}
+
+function inferIngredientsFromText(text: string): string[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let best: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = normalizeIngredientsHeaderSpacing(lines[i]);
+    if (!/ingredients?/i.test(line)) continue;
+    const block = normalizeIngredientsHeaderSpacing(buildIngredientCandidate(lines, i));
+    const idx = block.toLowerCase().indexOf('ingredients');
+    const candidate = extractIngredientsList(idx >= 0 ? block.slice(idx) : block);
+    if (candidate.length > best.length) best = candidate;
+  }
+
+  if (best.length > 0) return best;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const separatorCount = (line.match(/[,;•·]/g) || []).length;
+    if (separatorCount < 2) continue;
+    const block = buildIngredientCandidate(lines, i);
+    const candidate = extractIngredientsList(block);
+    if (candidate.length > best.length) best = candidate;
+  }
+
+  return best;
 }
 
 function mergeNutritionRows(primary: { label: string; value: string }[], extra: { label: string; value: string }[]) {
@@ -333,6 +376,9 @@ export function buildStructuredSummary(extractedBlocks: ExtractedBlocks, fullTex
     mergedIngredients = mergeIngredients(mergedIngredients, fallback.ingredients);
     nutritionRows = mergeNutritionRows(nutritionRows, fallback.nutritionRows);
   }
+  if (mergedIngredients.length === 0 && fullText.trim().length > 0) {
+    mergedIngredients = mergeIngredients(mergedIngredients, inferIngredientsFromText(fullText));
+  }
   return { ingredients: mergedIngredients, nutritionRows };
 }
 
@@ -354,6 +400,9 @@ function extractFromConcatenatedOcr(text: string): StructuredSummary {
       if (/^(Batch|Mfg|Value|%RDA)/i.test(s)) continue;
       ingredients.push(s);
     }
+  }
+  if (ingredients.length === 0) {
+    ingredients.push(...inferIngredientsFromText(text));
   }
   return { ingredients, nutritionRows };
 }
