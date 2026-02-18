@@ -199,6 +199,63 @@ export interface StructuredSummary {
   nutritionRows: { label: string; value: string }[];
 }
 
+function normalizeIngredientToken(token: string): string {
+  return token.replace(/\s+/g, ' ').replace(/^[\-\d\)\.]+\s*/, '').trim();
+}
+
+function isLikelyIngredientToken(token: string): boolean {
+  if (token.length < 2 || token.length > 120) return false;
+  if (!/[a-zA-Z]{2,}/.test(token)) return false;
+  if (/^(contains|may contain|allergen|allergy|storage|best before|mrp|batch|manufactured|marketed|fssai)\b/i.test(token)) return false;
+  if (/^\d+[.,]?\d*$/.test(token)) return false;
+  return true;
+}
+
+export function extractIngredientsList(ingredientsBlock: string): string[] {
+  const cleaned = ingredientsBlock
+    .replace(/\r?\n/g, ' ')
+    .replace(/\bingredients?\b\s*:?\s*/i, '')
+    .replace(/[•·]/g, ',')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return [];
+  const tokens = cleaned.split(/[,;]+/).map((t) => normalizeIngredientToken(t)).filter(Boolean);
+  const results: string[] = [];
+  const seen = new Set<string>();
+  for (const token of tokens) {
+    if (!isLikelyIngredientToken(token)) continue;
+    const key = token.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(token);
+  }
+  return results;
+}
+
+function mergeNutritionRows(primary: { label: string; value: string }[], extra: { label: string; value: string }[]) {
+  const results: { label: string; value: string }[] = [];
+  const seen = new Set<string>();
+  for (const row of [...primary, ...extra]) {
+    const key = row.label.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(row);
+  }
+  return results;
+}
+
+function mergeIngredients(primary: string[], extra: string[]) {
+  const results: string[] = [];
+  const seen = new Set<string>();
+  for (const item of [...primary, ...extra]) {
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(item);
+  }
+  return results;
+}
+
 export function parseStructuredSummary(extractedText: string): StructuredSummary {
   let cleanText = extractedText
     .toLowerCase()
@@ -252,6 +309,20 @@ export function parseStructuredSummary(extractedText: string): StructuredSummary
   }
 
   return { ingredients, nutritionRows };
+}
+
+export function buildStructuredSummary(extractedBlocks: ExtractedBlocks, fullText: string): StructuredSummary {
+  const ingredients = extractIngredientsList(extractedBlocks.ingredientsBlock || '');
+  const nutritionFromTable = extractRowsFromText(extractedBlocks.nutritionBlock || '');
+  const nutritionFromPatterns = parseStructuredSummary(extractedBlocks.nutritionBlock || '').nutritionRows;
+  let nutritionRows = mergeNutritionRows(nutritionFromTable, nutritionFromPatterns);
+  let mergedIngredients = ingredients;
+  if ((mergedIngredients.length === 0 || nutritionRows.length === 0) && fullText.trim().length > 0) {
+    const fallback = extractFromConcatenatedOcr(fullText);
+    mergedIngredients = mergeIngredients(mergedIngredients, fallback.ingredients);
+    nutritionRows = mergeNutritionRows(nutritionRows, fallback.nutritionRows);
+  }
+  return { ingredients: mergedIngredients, nutritionRows };
 }
 
 /** Fallback: anchor-based extraction over full text. */

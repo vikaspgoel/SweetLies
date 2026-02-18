@@ -18,7 +18,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useScan } from '@/src/context/ScanContext';
 import { evaluateClaims } from '@/src/rules/evaluateClaims';
 import { getSugarVerdict, getSugaryIngredientsWithInfo, getSugarWarning } from '@/src/rules/sugarVerdict';
-import { extractNutritionAndIngredientsOnly, getCombinedExtractedText, parseStructuredSummary } from '@/src/utils/extractNutritionSections';
+import { buildStructuredSummary, extractNutritionAndIngredientsOnly, getCombinedExtractedText } from '@/src/utils/extractNutritionSections';
 import { getClaimEducation } from '@/src/knowledge/claimEducation';
 import { getSweetenerFactCard } from '@/src/knowledge/sweetenerFactCards';
 import type { SweetenerInfo } from '@/src/knowledge/artificialSweetenerInfo';
@@ -309,41 +309,31 @@ export default function ResultScreen() {
           <Text style={styles.sectionTitle}>Summary of the label</Text>
           <Text style={styles.rawOcrHint}>Information captured under Ingredients and Nutrition Label.</Text>
           {((): React.ReactNode => {
+            const full = sanitizeLabelSummary(labelCombined || '');
             const extractedBlocks = extractNutritionAndIngredientsOnly(labelCombined || '');
-            const extracted = sanitizeLabelSummary(getCombinedExtractedText(extractedBlocks) || '');
-            let { ingredients, nutritionRows } = parseStructuredSummary(extracted);
-            if (ingredients.length === 0 && nutritionRows.length === 0 && (labelCombined?.length ?? 0) > 80) {
-              const rawParsed = parseStructuredSummary(sanitizeLabelSummary(labelCombined || ''));
-              if (rawParsed.ingredients.length > 0 || rawParsed.nutritionRows.length > 0) {
-                ingredients = rawParsed.ingredients;
-                nutritionRows = rawParsed.nutritionRows;
-              }
-            }
-            const hasAny = ingredients.length > 0 || nutritionRows.length > 0;
-
-            if (!hasAny) {
-              return (
-                <View style={styles.rawOcrBox}>
-                  <Text style={styles.noData}>We couldn&apos;t extract clear ingredients or nutrition from this photo. Try a clearer image of the ingredients list and nutrition label.</Text>
-                </View>
-              );
-            }
+            const { ingredients, nutritionRows } = buildStructuredSummary(extractedBlocks, full);
+            const extractedCombined = sanitizeLabelSummary(getCombinedExtractedText(extractedBlocks) || '');
+            const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+            const fullLines = full.split('\n').map((l) => l.trim()).filter(Boolean);
+            const extractedLines = extractedCombined.split('\n').map((l) => l.trim()).filter(Boolean);
+            const extractedSet = new Set(extractedLines.map((l) => normalize(l)));
+            const discardedLines = fullLines.filter((line) => !extractedSet.has(normalize(line)));
 
             return (
               <>
-                {ingredients.length > 0 && (
-                  <View style={styles.summarySection}>
-                    <Text style={styles.summarySectionTitle}>Ingredients</Text>
-                    <View style={styles.rawOcrBox}>
-                      <Text style={styles.rawOcrText}>
-                        {ingredients.map((line) => line.trim()).filter(Boolean).join(', ')}
-                      </Text>
-                    </View>
+                <View style={styles.summarySection}>
+                  <Text style={styles.summarySectionTitle}>Ingredients</Text>
+                  <View style={styles.rawOcrBox}>
+                    <Text style={styles.rawOcrText}>
+                      {ingredients.length > 0
+                        ? ingredients.map((line) => line.trim()).filter(Boolean).join(', ')
+                        : 'Not found in this scan.'}
+                    </Text>
                   </View>
-                )}
-                {nutritionRows.length > 0 && (
-                  <View style={[styles.summarySection, { marginTop: ingredients.length > 0 ? 16 : 0 }]}>
-                    <Text style={styles.summarySectionTitle}>Nutrition (per 100g or per serving)</Text>
+                </View>
+                <View style={[styles.summarySection, { marginTop: ingredients.length > 0 ? 16 : 0 }]}>
+                  <Text style={styles.summarySectionTitle}>Nutrition (per 100g or per serving)</Text>
+                  {nutritionRows.length > 0 ? (
                     <View style={styles.table}>
                       <View style={styles.tableHeader}>
                         <Text style={styles.tableHeaderCell}>Nutrient</Text>
@@ -356,8 +346,24 @@ export default function ResultScreen() {
                         </View>
                       ))}
                     </View>
+                  ) : (
+                    <View style={styles.rawOcrBox}>
+                      <Text style={styles.rawOcrText}>Not found in this scan.</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={[styles.summarySection, { marginTop: 16 }]}>
+                  <Text style={styles.summarySectionTitle}>Discarded text/phrases</Text>
+                  <View style={styles.rawOcrBox}>
+                    {discardedLines.length > 0 ? (
+                      discardedLines.map((line, idx) => (
+                        <Text key={idx} style={styles.rawOcrTextLine}>{line}</Text>
+                      ))
+                    ) : (
+                      <Text style={styles.rawOcrText}>None</Text>
+                    )}
                   </View>
-                )}
+                </View>
               </>
             );
           })()}
