@@ -283,7 +283,6 @@ export default function ResultScreen() {
     summaryForReadability.ingredients.length > 0 ||
     summaryForReadability.nutritionRows.length > 0;
   const isInconclusive = readabilityScore <= 1 && !hasAnyLabelData;
-  const isLowReadability = !isInconclusive && readabilityScore >= 2 && readabilityScore <= 3;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -292,14 +291,6 @@ export default function ResultScreen() {
           <Text style={styles.finalVerdictLabel}>Final Verdict</Text>
           <Text style={styles.finalVerdictText}>
             {sugarVerdict === 'NO_SUGAR' ? 'No Sugar is found' : 'Sugar/Sugar type is there'}
-          </Text>
-        </View>
-      )}
-
-      {activeTab === 'overview' && isLowReadability && (
-        <View style={styles.readabilityNote}>
-          <Text style={styles.readabilityNoteText}>
-            Your label clarity was low. You may retry with a clearer photo of the ingredients and nutrition table.
           </Text>
         </View>
       )}
@@ -858,20 +849,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#b45309',
     lineHeight: 21,
-  },
-  readabilityNote: {
-    backgroundColor: '#f8fafc',
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  readabilityNoteText: {
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 19,
-    textAlign: 'center',
   },
   imageWarningBanner: {
     backgroundColor: '#fef3c7',
