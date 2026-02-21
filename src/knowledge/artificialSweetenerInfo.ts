@@ -32,6 +32,7 @@ export const SWEETENER_TABLE: SweetenerInfo[] = [
   { name: 'Isomalt', aliases: ['isomalt', '953', 'ins 953'], gi: '9', calPerG: '2.0', safetyCategory: 'Moderate GI' },
   { name: 'Mannitol', aliases: ['mannitol', '421', 'ins 421'], gi: '2', calPerG: '1.6', safetyCategory: 'Moderate GI' },
   { name: 'Polydextrose', aliases: ['polydextrose'], gi: '1', calPerG: '1.0', safetyCategory: 'Moderate GI' },
+  { name: 'Polyols', aliases: ['polyol', 'polyols', 'sugar alcohol', 'sugar alcohols', 'sugar-alcohol', 'sugar-alcohols', 'polyhydric alcohol', 'polyhydric alcohols'], gi: 'Varies', calPerG: 'Varies', safetyCategory: 'Moderate GI' },
   { name: 'Maltitol', aliases: ['maltitol', '965', 'ins 965'], gi: '35-52', calPerG: '2.1', safetyCategory: 'High GI', isMaltitol: true },
 ];
 

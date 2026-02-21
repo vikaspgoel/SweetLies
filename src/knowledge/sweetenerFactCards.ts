@@ -101,6 +101,12 @@ export const SWEETENER_FACT_CARDS: Record<string, string> = {
 
 • Gut: Acts as a soluble fiber; supports gut health but may cause gas.`,
 
+  'Polyols': `The Sugar-Alcohol Family: A group of sweeteners like erythritol, xylitol, and sorbitol. They are not sugars, but some can still raise glucose slightly.
+
+• Safety: Tolerance varies by person and type; large servings can cause digestive upset.
+
+• Gut: Can act as osmotic laxatives and cause bloating at higher doses.`,
+
   'Maltitol': `The Sweet Lie: Spike Warning: It has about half the glycemic impact of real sugar and will cause a moderate rise in blood glucose. It provides bulk and texture similar to sugar.
 
 • Safety: Limit to 30g daily to avoid gastric distress.

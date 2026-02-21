@@ -9,7 +9,6 @@ import { getSugarIngredientInfo } from '@/src/knowledge/sugarIngredientInfo';
 export type SugarVerdict = 'NO_SUGAR' | 'SUGAR_PRESENT';
 
 const SUGAR_THRESHOLD = 0.5;
-const POLYOLS_THRESHOLD = 5;
 
 const HIGH_GI_TRAP = ['maltodextrin', 'dextrin', 'modified starch', 'barley malt', 'malt extract'];
 const HEALTH_HALO_TRAP = ['honey', 'jaggery', 'dates', 'date paste', 'date syrup', 'coconut sugar', 'agave', 'agave nectar', 'agave syrup', 'maple syrup'];
@@ -36,12 +35,11 @@ export function getSugarVerdict(details: {
   sugarPer100g?: number;
   polyolsPer100g?: number;
 }): SugarVerdict {
-  const { sugarAliasesFound, sugarPer100g, polyolsPer100g } = details;
+  const { sugarAliasesFound, sugarPer100g } = details;
   const hasSugarInIngredients = sugarAliasesFound.length > 0;
   const hasSugarInNutrition = sugarPer100g != null && sugarPer100g >= SUGAR_THRESHOLD;
-  const hasHighPolyols = polyolsPer100g != null && polyolsPer100g >= POLYOLS_THRESHOLD;
 
-  if (hasSugarInIngredients || hasSugarInNutrition || hasHighPolyols) {
+  if (hasSugarInIngredients || hasSugarInNutrition) {
     return 'SUGAR_PRESENT';
   }
   return 'NO_SUGAR';
