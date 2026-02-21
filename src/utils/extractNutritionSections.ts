@@ -14,7 +14,7 @@ function _dbg(p: { location: string; message: string; data?: Record<string, unkn
 const INGREDIENTS_ANCHOR = /\b(?:ingredients?|ingridients?|ingrediants?|ingrediens)\s*:?\s*(?:\s|$)/i;
 
 /** Fuzzy Nutrition Anchor: Nutrition Information, Nutritional Information, Nutrition Facts, typos, suffixes (# * (APPROX.)). */
-const NUTRITION_ANCHOR = /\b(?:nutrition(?:\s+information|\s*facts|\s*label)?|nutritional(?:\s+information|\s*facts|\.?\s*infromation)?|nutrtional\s*information|nutritonal\s*information)\s*(?:#|\*|\s*\(approx\.?\)|\s*\(approximate\))?\s*$/im;
+const NUTRITION_ANCHOR = /\b(?:nutrition(?:\s*information|\s*facts|\s*label|\s*info|info)?|nutritional(?:\s*information|\s*facts|\s*info|info|\.?\s*infromation)?|nutritionalinfo|nutritioninfo|nutrtional\s*information|nutritonal\s*information)\s*(?:#|\*|\s*\(approx\.?\)|\s*\(approximate\))?\s*$/im;
 
 /** Major headers that end the Ingredients block (do not include this line). */
 const INGREDIENTS_STOP_HEADERS = /\b(?:allergen\s+advice|allergy\s+information|storage\s*(?:instructions?)?|how\s+to\s+store|mrp\b|best\s+before|manufactured\s+by|manufactured\s+for|marketed\s+by|batch\s*(?:no\.?|#|number)?|fssai|license|pack\s*size|net\s*weight|address|contact)\b/i;
@@ -213,6 +213,8 @@ function isLikelyIngredientToken(token: string): boolean {
   if (!/[a-zA-Z]{2,}/.test(token)) return false;
   if (/^(contains|may contain|allergen|allergy|storage|best before|mrp|batch|manufactured|marketed|fssai)\b/i.test(token)) return false;
   if (/(?:per\s*100|per\s*serving|%rda|calorie|nutrition|facts|trans\s*fat|cholesterol|sodium)\b/i.test(token)) return false;
+  if (/^(?:added|total|natural)\s+sugars?\b/i.test(token)) return false;
+  if (/^(?:polyols?|net\s*carbs?|dietary\s*fib(?:er|re)|energy|calories)\b/i.test(token)) return false;
   if (/^\d+[.,]?\d*$/.test(token)) return false;
   return true;
 }
@@ -225,7 +227,7 @@ export function extractIngredientsList(ingredientsBlock: string): string[] {
     .replace(/[–—]/g, ',')
     .replace(/\s+/g, ' ')
     .trim();
-  const stopMatch = cleaned.match(/\b(batch|mfg|mrp|best before|manufactured|marketed|fssai|license|storage|allergen)\b/i);
+  const stopMatch = cleaned.match(/\b(batch|mfg|mrp|best before|manufactured|marketed|fssai|license|storage|allergen|nutrition\s*facts?|nutritional\s*info(?:rmation)?|nutrition\s*info|nutritionalinfo|nutritioninfo|this\s*pack\s*contains)\b/i);
   if (stopMatch?.index != null) {
     cleaned = cleaned.slice(0, stopMatch.index).trim();
   }

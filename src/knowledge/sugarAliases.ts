@@ -99,7 +99,6 @@ export const SUGAR_ALIASES: string[] = [
   'jgery',
   'honeyy',
   'molases',
-  'syrup',
   'syrupp',
 
   // --- Restored: Syrups & Nectars ---
@@ -124,8 +123,5 @@ export const SUGAR_ALIASES: string[] = [
   'ethyl maltol',
 
   // --- Essential catch-alls (safety nets) ---
-  'concentrate',
-  'concentrates',
   'nectar',
-  'malt',
 ];

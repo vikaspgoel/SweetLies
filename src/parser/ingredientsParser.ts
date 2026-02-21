@@ -96,6 +96,7 @@ function hasSugarTerm(chunk: string): boolean {
  */
 function isNegatedSugarPhrase(text: string): boolean {
   const t = text.toLowerCase().trim();
+  if (/^no\s+.*\bor\b.*(sugar|sucrose|glucose|fructose|dextrose|maltodextrin|malt|honey|jaggery|mishri)\b/i.test(t)) return true;
   if (/^no\s+added\s+(sugar|sucrose|glucose|fructose|dextrose)/i.test(t)) return true;
   if (/^without\s+(added\s+)?(sugar|sucrose)/i.test(t)) return true;
   if (/contains\s+no\s+(added\s+)?(sugar|sucrose)/i.test(t)) return true;
@@ -133,6 +134,10 @@ function isNutritionTableRow(text: string): boolean {
   const t = text.toLowerCase().trim();
   if (/^amount\s+per\s+\d|per\s*100\s*g|per\s*serving/i.test(t)) return true;
   if (/^(?:total|added)\s+sugar\s+[\d.,]|sugar\s+[\d.,].*g\b/i.test(t)) return true;
+  if (/^(?:total|added|natural)\s+sugars?\s*[-–—]?\s*$/i.test(t)) return true;
+  if (/^polyols?\s*[-–—]?\s*[\d.,]*/i.test(t)) return true;
+  if (/^net\s*carbs?\s*[-–—]?\s*[\d.,]*/i.test(t)) return true;
+  if (/^dietary\s*fib(?:er|re)\s*[-–—]?\s*[\d.,]*/i.test(t)) return true;
   if (/^(?:total\s+)?fat\s+[\d.,]|protein\s+[\d.,]|carb(?:ohydrate)?s?\s+[\d.,]/i.test(t)) return true;
   if (/calories?\s+[\d.,]|energy\s+[\d.,]|sodium\s+[\d.,]|cholesterol\s+[\d.,]/i.test(t)) return true;
   if (/^\d+[.,]?\d*\s*g\s*(?:of\s+)?(?:sugar|fat|protein)/i.test(t)) return true;
