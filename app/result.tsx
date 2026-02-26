@@ -177,6 +177,7 @@ export default function ResultScreen() {
   const [feedbackBlocked, setFeedbackBlocked] = useState(false);
   const [showClaimEducation, setShowClaimEducation] = useState(false);
   const [factCardSweetener, setFactCardSweetener] = useState<SweetenerInfo | null>(null);
+  const [visitorCount, setVisitorCount] = useState<number | null>(null);
 
   const hasData = (labelText?.length ?? 0) > 0;
 
@@ -191,6 +192,25 @@ export default function ResultScreen() {
       setLikeCount(count);
       setHasLiked(liked);
     })();
+  }, [hasData]);
+
+  useEffect(() => {
+    if (!hasData || Platform.OS !== 'web') return;
+    try {
+      const key = 'sweetliesVisitorCount';
+      const raw = globalThis?.localStorage?.getItem(key) ?? '';
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed < 1000) {
+        globalThis?.localStorage?.setItem(key, '1000');
+        setVisitorCount(1000);
+        return;
+      }
+      const next = parsed + 1;
+      globalThis?.localStorage?.setItem(key, String(next));
+      setVisitorCount(next);
+    } catch {
+      setVisitorCount(1000);
+    }
   }, [hasData]);
 
   const handleLike = async () => {
@@ -631,6 +651,10 @@ export default function ResultScreen() {
                 <FontAwesome5 name="comment-alt" size={16} color="#64748b" />
                 <Text style={styles.shareBtnText}>Feedback</Text>
               </Pressable>
+              <View style={styles.visitorCounter}>
+                <FontAwesome5 name="users" size={14} color="#64748b" />
+                <Text style={styles.visitorCountText}>Visitors {visitorCount ?? 1000}</Text>
+              </View>
             </>
           )}
         </View>
@@ -1341,6 +1365,19 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0',
     backgroundColor: '#fff',
   },
+  visitorCounter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    backgroundColor: '#fff',
+  },
+  visitorCountText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
