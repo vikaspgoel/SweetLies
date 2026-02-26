@@ -177,7 +177,7 @@ export default function ResultScreen() {
   const [feedbackBlocked, setFeedbackBlocked] = useState(false);
   const [showClaimEducation, setShowClaimEducation] = useState(false);
   const [factCardSweetener, setFactCardSweetener] = useState<SweetenerInfo | null>(null);
-  const [visitorCount, setVisitorCount] = useState<number | null>(null);
+  const [visitorCount, setVisitorCount] = useState(1000);
 
   const hasData = (labelText?.length ?? 0) > 0;
 
@@ -651,12 +651,12 @@ export default function ResultScreen() {
                 <FontAwesome5 name="comment-alt" size={16} color="#64748b" />
                 <Text style={styles.shareBtnText}>Feedback</Text>
               </Pressable>
-              <View style={styles.visitorCounter}>
-                <FontAwesome5 name="users" size={14} color="#64748b" />
-                <Text style={styles.visitorCountText}>Visitors {visitorCount ?? 1000}</Text>
-              </View>
             </>
           )}
+          <View style={styles.visitorCounter}>
+            <FontAwesome5 name="users" size={14} color="#64748b" />
+            <Text style={styles.visitorCountText}>Visitors {visitorCount}</Text>
+          </View>
         </View>
       </View>
 
