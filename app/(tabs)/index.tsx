@@ -218,7 +218,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: '#3d1f1a' },
+  scroll: { flex: 1, backgroundColor: '#f9fafb' },
   container: { padding: 24, paddingTop: 48, paddingBottom: 48 },
   header: {
     marginBottom: 32,
@@ -233,18 +233,18 @@ const styles = StyleSheet.create({
   brandSweet: {
     fontSize: 38,
     fontWeight: '800',
-    color: '#e8d5c4',
+    color: '#2f5b3f',
     letterSpacing: -0.5,
   },
   brandLies: {
     fontSize: 38,
     fontWeight: '800',
-    color: '#e8a598',
+    color: '#6b4c2f',
     letterSpacing: -0.5,
   },
   tagline: {
     fontSize: 18,
-    color: '#cbd5e1',
+    color: '#355a41',
     marginTop: 10,
     lineHeight: 26,
     textAlign: 'center',
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   },
   subtagline: {
     fontSize: 15,
-    color: '#94a3b8',
+    color: '#6b7280',
     marginTop: 6,
     lineHeight: 22,
     fontStyle: 'italic',
@@ -266,25 +266,25 @@ const styles = StyleSheet.create({
   whyExpandLabel: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#e8a598',
+    color: '#6b4c2f',
   },
   whyExpandContent: {
     marginTop: 10,
     padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#f3f4f6',
     borderRadius: 12,
     marginHorizontal: 8,
   },
   whyExpandText: {
     fontSize: 15,
-    color: '#e8d5c4',
+    color: '#355a41',
     lineHeight: 24,
     marginBottom: 6,
     textAlign: 'center',
   },
   claimHint: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6b7280',
     marginBottom: 12,
     fontStyle: 'italic',
   },
@@ -294,19 +294,19 @@ const styles = StyleSheet.create({
     padding: 24,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: '#e5e7eb',
   },
   stepBadge: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#722F37',
+    backgroundColor: '#2f5b3f',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
   },
-  stepBadge2: { backgroundColor: '#8b5cf6' },
-  stepBadge3: { backgroundColor: '#22c55e' },
+  stepBadge2: { backgroundColor: '#6b4c2f' },
+  stepBadge3: { backgroundColor: '#7a8f3a' },
   stepNum: {
     fontSize: 20,
     fontWeight: '800',
@@ -315,12 +315,12 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#0f172a',
+    color: '#1f2937',
     marginBottom: 8,
   },
   sectionHint: {
     fontSize: 15,
-    color: '#475569',
+    color: '#6b7280',
     marginBottom: 16,
     lineHeight: 22,
   },
@@ -328,34 +328,34 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   optionBtn: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f9fafb',
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#e2e8f0',
+    borderColor: '#e5e7eb',
   },
   optionBtnSelected: {
-    backgroundColor: '#fdf2f4',
-    borderColor: '#722F37',
+    backgroundColor: '#eef2e6',
+    borderColor: '#2f5b3f',
   },
   optionText: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#475569',
+    color: '#374151',
   },
   optionTextSelected: {
-    color: '#722F37',
+    color: '#2f5b3f',
     fontWeight: '600',
   },
   truthBtn: {
-    backgroundColor: '#22c55e',
+    backgroundColor: '#2f5b3f',
     paddingVertical: 18,
     borderRadius: 14,
     alignItems: 'center',
   },
   truthBtnDisabled: {
-    backgroundColor: '#475569',
+    backgroundColor: '#9ca3af',
     opacity: 0.7,
   },
   truthBtnText: {
@@ -365,13 +365,13 @@ const styles = StyleSheet.create({
   },
   truthHint: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6b7280',
     marginTop: 12,
     textAlign: 'center',
   },
   slowMessage: {
     fontSize: 15,
-    color: '#475569',
+    color: '#6b7280',
     marginTop: 16,
     textAlign: 'center',
     fontStyle: 'italic',
